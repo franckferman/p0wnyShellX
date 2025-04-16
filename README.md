@@ -4,7 +4,6 @@
 [![Contributors][contributors-shield]](https://github.com/franckferman/p0wnyShellX/graphs/contributors)
 [![Forks][forks-shield]](https://github.com/franckferman/p0wnyShellX/network/members)
 [![Stargazers][stars-shield]](https://github.com/franckferman/p0wnyShellX/stargazers)
-[![Issues][issues-shield]](https://github.com/franckferman/p0wnyShellX/issues)
 [![License][license-shield]](https://github.com/franckferman/p0wnyShellX/blob/stable/LICENSE)
 
 <!-- Title & Tagline -->
