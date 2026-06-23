@@ -33,10 +33,11 @@ jobs:
           python3 p0wnyShellX.py -p "CITestPass42!" --transport rc4   -o /tmp/s7.php
           python3 p0wnyShellX.py -p "CITestPass42!" -t none -o /tmp/s8.php
           python3 p0wnyShellX.py -p "CITestPass42!" -t poly -o /tmp/s9.php
+          python3 p0wnyShellX.py -p "CITestPass42!" --revshell --clearlog --portscan --no-junk -o /tmp/s10.php
 
       - name: PHP syntax check
         run: |
-          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php /tmp/s8.php /tmp/s9.php; do
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php /tmp/s8.php /tmp/s9.php /tmp/s10.php; do
             php -l "$f" || exit 1
           done
 
@@ -53,7 +54,7 @@ jobs:
             "suggestEntry"
             "featurePwd"
           )
-          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php /tmp/s8.php /tmp/s9.php; do
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php /tmp/s8.php /tmp/s9.php /tmp/s10.php; do
             for sig in "${SIGNATURES[@]}"; do
               if grep -q "$sig" "$f"; then
                 echo "FAIL: static signature '$sig' found in $f"
@@ -82,7 +83,7 @@ jobs:
 
       - name: Verify exec fallback chain integrity
         run: |
-          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s8.php /tmp/s9.php; do
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s8.php /tmp/s9.php /tmp/s10.php; do
             # Core methods must always be present
             for method in exec shell_exec; do
               if ! grep -q "function_exists('${method}')" "$f"; then
@@ -130,16 +131,23 @@ jobs:
           done
           echo "RC4 transport: tEnc present, no plain param names."
 
-      - name: Verify all 7 switch cases are present
+      - name: Verify switch case counts
         run: |
+          # Default builds (no --revshell/--clearlog/--portscan) must have exactly 4 cases
           for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php /tmp/s8.php /tmp/s9.php; do
             count=$(grep -c "case '" "$f" || true)
-            if [ "$count" -ne 7 ]; then
-              echo "FAIL: expected 7 switch cases in $f, got $count"
+            if [ "$count" -ne 4 ]; then
+              echo "FAIL: expected 4 switch cases in $f (default build), got $count"
               exit 1
             fi
           done
-          echo "Switch case count verified (7 per shell)."
+          # Full feature build (--revshell --clearlog --portscan) must have exactly 7 cases
+          count=$(grep -c "case '" /tmp/s10.php || true)
+          if [ "$count" -ne 7 ]; then
+            echo "FAIL: expected 7 switch cases in s10.php (full features), got $count"
+            exit 1
+          fi
+          echo "Switch case counts verified (4 for default, 7 for full-feature build)."
 
       - name: Verify mimic transport excludes new plain param names
         run: |

