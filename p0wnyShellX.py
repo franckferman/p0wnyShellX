@@ -301,6 +301,7 @@ def generate_transport_context(rng: random.Random, mode: str) -> dict:
 # CSS THEMES
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Real themes: picked by random when --theme is omitted. 'poly' and 'none' are excluded from the random pool.
 CSS_THEMES = {
     "infra-dark": {
         "app_name": "Resource Monitor", "version_prefix": "v",
@@ -347,11 +348,214 @@ CSS_THEMES = {
         "error_fg": "#ff0000", "note_fg": "#006600",
         "scroll_track": "#001100", "scroll_thumb": "#006600",
     },
+    # ── Zabbix monitoring dashboard camouflage ──
+    "zabbix": {
+        "app_name": "Zabbix Frontend", "version_prefix": "v",
+        "body_bg": "#0f1318", "body_fg": "#c3ccd6",
+        "shell_bg": "radial-gradient(ellipse at center, #131b26 0%, #0b0f15 100%)",
+        "shell_border": "#1e2d40", "shell_glow": "rgba(209,79,43,0.08)",
+        "stream_fg": "#b8c5d0", "prompt_fg": "#d14f2b", "prompt_host_fg": "#5ba3c9",
+        "header_fg": "#d14f2b", "header_shadow": "#d14f2b44",
+        "entry_bg": "#111820", "entry_border": "rgba(30,45,64,.8)",
+        "input_fg": "#c3ccd6",
+        "form_bg": "#131b26", "form_border": "#1e2d40",
+        "input_bg": "#0b0f15", "input_border": "#1e2d40", "input_fg2": "#b8c5d0",
+        "btn_bg": "#d14f2b", "btn_fg": "#ffffff",
+        "error_fg": "#e05c3b", "note_fg": "#4a5a6b",
+        "scroll_track": "#111820", "scroll_thumb": "#2a3d52",
+    },
+    # ── Watch Dogs ctOS cold blue-green palette ──
+    "ctos": {
+        "app_name": "ctOS Interface", "version_prefix": "v",
+        "body_bg": "#09131c", "body_fg": "#00d4e8",
+        "shell_bg": "radial-gradient(ellipse at center, #0d1a25 0%, #060e15 100%)",
+        "shell_border": "#005f6e", "shell_glow": "rgba(0,213,232,0.10)",
+        "stream_fg": "#00bcd4", "prompt_fg": "#00ff7f", "prompt_host_fg": "#00d4e8",
+        "header_fg": "#00d4e8", "header_shadow": "#00d4e844",
+        "entry_bg": "#0b1720", "entry_border": "rgba(0,95,110,.8)",
+        "input_fg": "#00d4e8",
+        "form_bg": "#0d1a25", "form_border": "#005f6e",
+        "input_bg": "#060e15", "input_border": "#005f6e", "input_fg2": "#00bcd4",
+        "btn_bg": "#006b7a", "btn_fg": "#00d4e8",
+        "error_fg": "#ff4444", "note_fg": "#005060",
+        "scroll_track": "#0b1720", "scroll_thumb": "#005f6e",
+    },
+    # ── Mr. Robot / fsociety — dark mono with red accent ──
+    "fsociety": {
+        "app_name": "Secure Shell", "version_prefix": "v",
+        "body_bg": "#0d0d0d", "body_fg": "#d0d0d0",
+        "shell_bg": "radial-gradient(ellipse at center, #111111 0%, #080808 100%)",
+        "shell_border": "#2a0a0a", "shell_glow": "rgba(204,34,0,0.10)",
+        "stream_fg": "#c0c0c0", "prompt_fg": "#cc2200", "prompt_host_fg": "#999999",
+        "header_fg": "#cc2200", "header_shadow": "#cc220044",
+        "entry_bg": "#111111", "entry_border": "rgba(42,10,10,.8)",
+        "input_fg": "#d0d0d0",
+        "form_bg": "#111111", "form_border": "#2a0a0a",
+        "input_bg": "#080808", "input_border": "#2a0a0a", "input_fg2": "#c0c0c0",
+        "btn_bg": "#cc2200", "btn_fg": "#ffffff",
+        "error_fg": "#ff3300", "note_fg": "#555555",
+        "scroll_track": "#111111", "scroll_thumb": "#3a0a0a",
+    },
+    # ── Russian tricolor (white/blue/red) palette ──
+    "russia": {
+        "app_name": "Federal Monitor", "version_prefix": "v",
+        "body_bg": "#0a0a14", "body_fg": "#e8e8f0",
+        "shell_bg": "radial-gradient(ellipse at center, #0e0e1e 0%, #070710 100%)",
+        "shell_border": "#1a1a2e", "shell_glow": "rgba(204,0,0,0.09)",
+        "stream_fg": "#d8d8e8", "prompt_fg": "#cc0000", "prompt_host_fg": "#4466cc",
+        "header_fg": "#cc0000", "header_shadow": "#cc000044",
+        "entry_bg": "#0c0c1a", "entry_border": "rgba(26,26,46,.8)",
+        "input_fg": "#e8e8f0",
+        "form_bg": "#0e0e1e", "form_border": "#1a1a2e",
+        "input_bg": "#070710", "input_border": "#1a1a2e", "input_fg2": "#d8d8e8",
+        "btn_bg": "#cc0000", "btn_fg": "#ffffff",
+        "error_fg": "#ff4444", "note_fg": "#3a3a5a",
+        "scroll_track": "#0c0c1a", "scroll_thumb": "#2a2a4a",
+    },
+    # ── North Korea — stark red on near-black ──
+    "korea": {
+        "app_name": "Monitoring System", "version_prefix": "v",
+        "body_bg": "#080808", "body_fg": "#e8e8e8",
+        "shell_bg": "radial-gradient(ellipse at center, #100808 0%, #060606 100%)",
+        "shell_border": "#2a0000", "shell_glow": "rgba(255,34,0,0.08)",
+        "stream_fg": "#dddddd", "prompt_fg": "#ff2200", "prompt_host_fg": "#4488cc",
+        "header_fg": "#ff2200", "header_shadow": "#ff220044",
+        "entry_bg": "#0e0808", "entry_border": "rgba(42,0,0,.8)",
+        "input_fg": "#e8e8e8",
+        "form_bg": "#100808", "form_border": "#2a0000",
+        "input_bg": "#060606", "input_border": "#2a0000", "input_fg2": "#dddddd",
+        "btn_bg": "#cc0000", "btn_fg": "#ffffff",
+        "error_fg": "#ff4444", "note_fg": "#444444",
+        "scroll_track": "#0e0808", "scroll_thumb": "#440000",
+    },
+    # ── French tricolor (bleu/blanc/rouge) ──
+    "france": {
+        "app_name": "Tableau de Bord", "version_prefix": "v",
+        "body_bg": "#05091a", "body_fg": "#dde2f0",
+        "shell_bg": "radial-gradient(ellipse at center, #090e24 0%, #030614 100%)",
+        "shell_border": "#1a2060", "shell_glow": "rgba(237,41,57,0.08)",
+        "stream_fg": "#c8d0e8", "prompt_fg": "#ed2939", "prompt_host_fg": "#4466cc",
+        "header_fg": "#ed2939", "header_shadow": "#ed293944",
+        "entry_bg": "#080d20", "entry_border": "rgba(26,32,96,.8)",
+        "input_fg": "#dde2f0",
+        "form_bg": "#090e24", "form_border": "#1a2060",
+        "input_bg": "#030614", "input_border": "#1a2060", "input_fg2": "#c8d0e8",
+        "btn_bg": "#002395", "btn_fg": "#ffffff",
+        "error_fg": "#ed2939", "note_fg": "#353c6a",
+        "scroll_track": "#080d20", "scroll_thumb": "#253080",
+    },
+    # ── American flag palette (navy/red/white) ──
+    "usa": {
+        "app_name": "Federal Operations", "version_prefix": "v",
+        "body_bg": "#05071a", "body_fg": "#e8e0d0",
+        "shell_bg": "radial-gradient(ellipse at center, #0a0c22 0%, #030514 100%)",
+        "shell_border": "#1c1a4a", "shell_glow": "rgba(178,34,52,0.08)",
+        "stream_fg": "#d8d0c0", "prompt_fg": "#b22234", "prompt_host_fg": "#5c5c8e",
+        "header_fg": "#b22234", "header_shadow": "#b2223444",
+        "entry_bg": "#080a1e", "entry_border": "rgba(28,26,74,.8)",
+        "input_fg": "#e8e0d0",
+        "form_bg": "#0a0c22", "form_border": "#1c1a4a",
+        "input_bg": "#030514", "input_border": "#1c1a4a", "input_fg2": "#d8d0c0",
+        "btn_bg": "#3c3b6e", "btn_fg": "#ffffff",
+        "error_fg": "#b22234", "note_fg": "#35336a",
+        "scroll_track": "#080a1e", "scroll_thumb": "#2a2865",
+    },
+    # ── Redux DevTools — purple on near-black ──
+    "redux": {
+        "app_name": "State Inspector", "version_prefix": "v",
+        "body_bg": "#1a1b2e", "body_fg": "#cba6f7",
+        "shell_bg": "radial-gradient(ellipse at center, #1f1f38 0%, #141424 100%)",
+        "shell_border": "#45406a", "shell_glow": "rgba(118,74,188,0.12)",
+        "stream_fg": "#b0a0e0", "prompt_fg": "#a97df5", "prompt_host_fg": "#7c6dbd",
+        "header_fg": "#a97df5", "header_shadow": "#764abc44",
+        "entry_bg": "#1d1e30", "entry_border": "rgba(69,64,106,.8)",
+        "input_fg": "#cba6f7",
+        "form_bg": "#1f1f38", "form_border": "#45406a",
+        "input_bg": "#141424", "input_border": "#45406a", "input_fg2": "#b0a0e0",
+        "btn_bg": "#764abc", "btn_fg": "#ffffff",
+        "error_fg": "#f48fb1", "note_fg": "#544d7e",
+        "scroll_track": "#1d1e30", "scroll_thumb": "#45406a",
+    },
+}
+
+# app_name/version_prefix pool for --theme poly (generic monitoring look, distinct from named themes)
+POLY_APP_NAMES = [
+    "System Monitor", "Node Inspector", "Service Dashboard",
+    "Cluster Console", "Infra Terminal", "Stack Monitor",
+    "Platform Console", "Runtime Inspector", "Deploy Console",
+    "Ops Dashboard", "Health Monitor", "Agent Terminal",
+    "Mesh Dashboard", "Relay Console", "Core Monitor",
+    "Grid Terminal", "Nexus Console", "Vault Monitor",
+    "Apex Dashboard", "Pulse Console",
+]
+POLY_VER_PREFIXES = ["v", "build-", "r", "ver.", "rel-", ""]
+
+# --theme none: bare terminal, no styled header, no color signature
+THEME_NONE = {
+    "app_name": "", "version_prefix": "",
+    "body_bg": "#0c0c0c", "body_fg": "#d4d4d4",
+    "shell_bg": "#0c0c0c",
+    "shell_border": "#2a2a2a", "shell_glow": "rgba(0,0,0,0)",
+    "stream_fg": "#d4d4d4", "prompt_fg": "#ffffff", "prompt_host_fg": "#cccccc",
+    "header_fg": "transparent", "header_shadow": "rgba(0,0,0,0)",
+    "entry_bg": "#111111", "entry_border": "rgba(255,255,255,0.08)",
+    "input_fg": "#d4d4d4",
+    "form_bg": "#111111", "form_border": "#2a2a2a",
+    "input_bg": "#0c0c0c", "input_border": "#2a2a2a", "input_fg2": "#d4d4d4",
+    "btn_bg": "#2a2a2a", "btn_fg": "#d4d4d4",
+    "error_fg": "#cc3333", "note_fg": "#666666",
+    "scroll_track": "#111111", "scroll_thumb": "#333333",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
+
+def generate_poly_theme(rng):
+    h   = rng.randint(0, 359)
+    ah  = (h + rng.randint(130, 230)) % 360
+    bg_s = rng.randint(8, 20)
+    bg_l = rng.randint(8, 14)
+    fg_s = rng.randint(5, 15)
+    fg_l = rng.randint(78, 90)
+    acc_s = rng.randint(55, 80)
+    acc_l = rng.randint(48, 65)
+
+    def hsl(hh, ss, ll):
+        return f"hsl({hh},{max(0, ss)}%,{max(3, ll)}%)"
+    def hsla(hh, ss, ll, aa):
+        return f"hsla({hh},{max(0, ss)}%,{max(3, ll)}%,{aa:.2f})"
+
+    return {
+        "app_name":       rng.choice(POLY_APP_NAMES),
+        "version_prefix": rng.choice(POLY_VER_PREFIXES),
+        "body_bg":         hsl(h, bg_s, bg_l),
+        "body_fg":         hsl(h, fg_s, fg_l),
+        "shell_bg":        f"radial-gradient(ellipse at center, {hsl(h, bg_s+3, bg_l+2)} 0%, {hsl(h, bg_s, bg_l-3)} 100%)",
+        "shell_border":    hsl(h, bg_s, bg_l + rng.randint(12, 22)),
+        "shell_glow":      hsla(ah, acc_s, acc_l, round(rng.uniform(0.05, 0.14), 2)),
+        "stream_fg":       hsl(h, fg_s, fg_l - rng.randint(5, 12)),
+        "prompt_fg":       hsl(ah, acc_s, acc_l),
+        "prompt_host_fg":  hsl((ah + rng.randint(-20, 20)) % 360,
+                               max(30, acc_s - rng.randint(0, 15)),
+                               max(35, acc_l + rng.randint(-8, 8))),
+        "header_fg":       hsl(ah, acc_s, acc_l),
+        "header_shadow":   hsla(ah, acc_s, acc_l, round(rng.uniform(0.20, 0.40), 2)),
+        "entry_bg":        hsl(h, bg_s + 2, bg_l + rng.randint(2, 5)),
+        "entry_border":    hsla(h, bg_s, bg_l + 20, round(rng.uniform(0.40, 0.80), 2)),
+        "input_fg":        hsl(h, fg_s, fg_l),
+        "form_bg":         hsl(h, bg_s, bg_l + rng.randint(4, 9)),
+        "form_border":     hsl(h, bg_s, bg_l + rng.randint(14, 22)),
+        "input_bg":        hsl(h, bg_s, bg_l - 2),
+        "input_border":    hsl(h, bg_s, bg_l + rng.randint(14, 22)),
+        "input_fg2":       hsl(h, fg_s, fg_l - 5),
+        "btn_bg":          hsl(ah, acc_s - rng.randint(0, 15), acc_l - rng.randint(0, 10)),
+        "btn_fg":          "#ffffff" if acc_l < 58 else "#000000",
+        "error_fg":        hsl(rng.randint(355, 365) % 360, rng.randint(55, 70), rng.randint(55, 65)),
+        "note_fg":         hsl(h, bg_s, bg_l + rng.randint(28, 40)),
+        "scroll_track":    hsl(h, bg_s, bg_l + rng.randint(3, 7)),
+        "scroll_thumb":    hsl(h, bg_s, bg_l + rng.randint(20, 32)),
+    }
 
 def rnd_token(rng, length=7):
     return ''.join(rng.choices(string.ascii_lowercase + string.digits, k=length))
@@ -372,7 +576,12 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
                       bcrypt_hash, username, junk_before, junk_after,
                       case_order, theme, ver, rng,
                       transport, transport_ctx):
-    T   = CSS_THEMES[theme]
+    if theme == 'poly':
+        T = generate_poly_theme(rng)
+    elif theme == 'none':
+        T = THEME_NONE
+    else:
+        T = CSS_THEMES[theme]
     cfg = n['cfg_var']
 
     # ── Transport setup ──
@@ -1279,7 +1488,9 @@ def main():
 Examples:
   python3 p0wnyShellX.py -p "MyPass!" -o shell.php
   python3 p0wnyShellX.py -p "MyPass!" -t matrix -j 50 -o shell.php
-  python3 p0wnyShellX.py -p "MyPass!" -t corporate-blue --no-junk -u operator -o shell.php
+  python3 p0wnyShellX.py -p "MyPass!" -t zabbix --no-junk -u operator -o shell.php
+  python3 p0wnyShellX.py -p "MyPass!" -t poly -o shell.php
+  python3 p0wnyShellX.py -p "MyPass!" -t none -o shell.php
   python3 p0wnyShellX.py -p "MyPass!" --seed 42 -o repro.php
   python3 p0wnyShellX.py -p "MyPass!" --transport mimic -o shell.php
   python3 p0wnyShellX.py -p "MyPass!" --transport rc4 -o shell.php
@@ -1293,8 +1504,8 @@ Examples:
                         help='Output file (default: shell.php)')
     parser.add_argument('-j', '--junk', type=int, default=None,
                         help='Number of junk functions (default: random 20-80, max 200)')
-    parser.add_argument('-t', '--theme', choices=list(CSS_THEMES.keys()), default=None,
-                        help='CSS theme: infra-dark | corporate-blue | matrix (default: random)')
+    parser.add_argument('-t', '--theme', choices=list(CSS_THEMES.keys()) + ['poly', 'none'], default=None,
+                        help='CSS theme: infra-dark | corporate-blue | matrix | zabbix | ctos | fsociety | russia | korea | france | usa | redux | poly | none (default: random from named themes)')
     parser.add_argument('-s', '--seed', type=int, default=None,
                         help='RNG seed for reproducible output')
     parser.add_argument('--no-junk', action='store_true',
@@ -1314,7 +1525,7 @@ Examples:
     with open(args.output, 'w', encoding='utf-8') as f:
         f.write(php)
 
-    theme_used = args.theme or '(random)'
+    theme_used = args.theme or '(random from named themes)'
     junk_used  = args.junk if args.junk is not None else '(random 20-80)'
 
     print(f"[+] Output    : {args.output}")

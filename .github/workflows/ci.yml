@@ -31,10 +31,12 @@ jobs:
           python3 p0wnyShellX.py -p "CITestPass42!" --seed 1337 -o /tmp/s5.php
           python3 p0wnyShellX.py -p "CITestPass42!" --transport mimic -o /tmp/s6.php
           python3 p0wnyShellX.py -p "CITestPass42!" --transport rc4   -o /tmp/s7.php
+          python3 p0wnyShellX.py -p "CITestPass42!" -t none -o /tmp/s8.php
+          python3 p0wnyShellX.py -p "CITestPass42!" -t poly -o /tmp/s9.php
 
       - name: PHP syntax check
         run: |
-          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php; do
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php /tmp/s8.php /tmp/s9.php; do
             php -l "$f" || exit 1
           done
 
@@ -51,7 +53,7 @@ jobs:
             "suggestEntry"
             "featurePwd"
           )
-          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php; do
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php /tmp/s8.php /tmp/s9.php; do
             for sig in "${SIGNATURES[@]}"; do
               if grep -q "$sig" "$f"; then
                 echo "FAIL: static signature '$sig' found in $f"
@@ -80,7 +82,7 @@ jobs:
 
       - name: Verify exec fallback chain integrity
         run: |
-          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php; do
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s8.php /tmp/s9.php; do
             # Core methods must always be present
             for method in exec shell_exec; do
               if ! grep -q "function_exists('${method}')" "$f"; then

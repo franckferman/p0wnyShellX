@@ -30,7 +30,7 @@ flowchart LR
         B2["Random routing tokens\n?x4r9tz=k2m8jvn"]
         B3["Bcrypt hash — cost=12\nplaintext never stored"]
         B4["Junk functions\n20–80 decoys per run"]
-        B5["CSS theme\n3 camouflage themes"]
+        B5["CSS theme\n11 named + poly + none"]
         B6["Shuffled exec order\nnew chain per build"]
         B7["AJAX transport\nplain / mimic / rc4"]
     end
@@ -61,7 +61,7 @@ flowchart LR
 | Routing endpoints | Fixed `?feature=shell` | Random tokens (e.g. `?x4r9tz=k2m8jvn`) |
 | Junk code | None | 20–80 dynamically generated decoy functions |
 | Exec fallback order | Fixed | Weighted shuffle per run + random method drop |
-| CSS camouflage | Transparent webshell | Fake monitoring dashboard (3 themes) |
+| CSS camouflage | Transparent webshell | 11 camouflage themes + `poly` (random palette per build) + `none` (no CSS) |
 | Password in file | — | bcrypt hash only — plaintext never stored |
 | Reproductible builds | Yes (static) | Via `--seed` flag |
 
@@ -262,6 +262,22 @@ POST body is opaque to regex-based WAF inspection. Note: high-entropy bodies are
 
 > The entropy trade-off is why `plain` is the default. On most targets, blending into normal traffic is safer than encrypting everything.
 
+### 7. CSS theme polymorphism
+
+The visual shell layer adds a third axis of variance beyond code and traffic.
+
+**Named themes** (`infra-dark`, `corporate-blue`, `matrix`, `zabbix`, `ctos`, `fsociety`, `russia`, `korea`, `france`, `usa`, `redux`) each have a fixed but distinct color palette and a fake application name. When omitted, the generator picks one at random — YARA rules cannot assume a stable color set.
+
+**`--theme poly`** generates a fully randomized HSL palette on every build: base hue (0–359°), complementary accent hue, per-channel lightness and saturation offsets. App name is drawn from a 20-entry pool. Both the colors and the name differ on every run — there is no stable CSS property value or app string a rule can anchor to.
+
+```
+# Same command, different CSS every time
+Build A : hsl(213,15%,10%) bg, hsl(43,65%,55%) accent, "Cluster Console v1"
+Build B : hsl(71,12%,9%)  bg, hsl(251,70%,58%) accent, "Grid Terminal build-"
+```
+
+**`--theme none`** strips all themed CSS. Colors fall back to generic black/gray values used by millions of pages; the login header title is empty. No CSS-based detection rule can fire on values that are indistinguishable from the browser default stylesheet.
+
 ---
 
 ## Requirements
@@ -302,7 +318,7 @@ python3 p0wnyShellX.py [OPTIONS]
 | `--user` | `-u` | `sysadmin` | Login username |
 | `--output` | `-o` | `shell.php` | Output file path |
 | `--junk` | `-j` | random 20–80 | Number of junk functions (max 200) |
-| `--theme` | `-t` | random | CSS theme: `infra-dark`, `corporate-blue`, `matrix` |
+| `--theme` | `-t` | random | CSS theme (see table below). `poly` = random palette per build, `none` = no CSS |
 | `--seed` | `-s` | — | Fixed RNG seed for reproducible output |
 | `--no-junk` | — | false | Disable junk function generation |
 | `--transport` | — | `plain` | AJAX encoding: `plain` / `mimic` / `rc4` |
@@ -329,6 +345,15 @@ python3 p0wnyShellX.py -p "MyPass123!" --no-junk -o shell.php
 
 # Corporate blue theme, custom username
 python3 p0wnyShellX.py -p "MyPass123!" -u webmaster -t corporate-blue -o shell.php
+
+# Polymorphic CSS — random palette, random app name, unique signature per build
+python3 p0wnyShellX.py -p "MyPass123!" -t poly -o shell.php
+
+# No CSS theme — bare terminal, no color/header signature for CSS-based rules
+python3 p0wnyShellX.py -p "MyPass123!" -t none -o shell.php
+
+# Zabbix camouflage — blends into Zabbix monitoring environments
+python3 p0wnyShellX.py -p "MyPass123!" -t zabbix -o shell.php
 
 # Mimic mode — random param names, standard base64, blends into normal web traffic
 python3 p0wnyShellX.py -p "MyPass123!" --transport mimic -o shell.php
@@ -360,13 +385,23 @@ Once deployed and authenticated, the shell supports:
 
 ## CSS Themes
 
-| Theme | Appearance | Use case |
-|---|---|---|
-| `infra-dark` | Green on dark — "Resource Monitor" | Generic Linux infra |
-| `corporate-blue` | Blue on dark — "InfraOps Console" | Enterprise environment |
-| `matrix` | Green on black — "SysCore Terminal" | High contrast / classic |
+Omit `--theme` to pick at random from the named themes below (`poly` and `none` are excluded from random selection).
 
-Omit `--theme` to let the generator pick one at random on each run.
+| Theme | Palette | Fake app name | Target environment |
+|---|---|---|---|
+| `infra-dark` | Green on dark | Resource Monitor | Generic Linux infra dashboards |
+| `corporate-blue` | Blue on dark | InfraOps Console | Enterprise / GitHub-like environments |
+| `matrix` | Green on black | SysCore Terminal | High contrast / classic terminal |
+| `zabbix` | Orange on dark blue | Zabbix Frontend | Environments running Zabbix monitoring |
+| `ctos` | Cyan/green on deep navy | ctOS Interface | Smart city / network ops centers |
+| `fsociety` | Red accent, monochrome | Secure Shell | Dark minimal / red team aesthetic |
+| `russia` | Red + blue on near-black | Federal Monitor | Red/blue/white palette |
+| `korea` | Red on black | Monitoring System | Stark high-contrast red |
+| `france` | Red + blue on navy | Tableau de Bord | French flag palette |
+| `usa` | Navy + red | Federal Operations | American flag palette |
+| `redux` | Purple on dark | State Inspector | React/Redux developer tool camouflage |
+| `poly` | Fully random HSL per build | Random from pool | No stable color signature to target |
+| `none` | Generic black/gray, no header | *(none)* | Maximum opacity against CSS-based YARA rules |
 
 ---
 
@@ -383,12 +418,13 @@ Every push to a version tag (`v*.*.*`) triggers a GitHub Actions workflow that:
 5. Publishes a GitHub Release with `p0wnyShellX.py` and the example shell as assets
 
 On every push/PR, the CI also runs a polymorphism validation suite:
-- Generates 7 shells (all themes, junk levels, and transport modes)
+- Generates 9 shells (named themes, `--theme poly`, `--theme none`, junk levels, and transport modes)
 - Checks PHP syntax on all
 - Confirms no static signatures remain
 - Confirms two consecutive runs produce different output
 - Verifies mimic transport uses randomized param names
 - Verifies rc4 transport injects `tEnc`/`tDec` and no plain param names
+- Verifies exec fallback chain integrity on all non-transport shells
 
 ---
 
@@ -404,7 +440,7 @@ On every push/PR, the CI also runs a polymorphism validation suite:
 
 ## Interactive command builder
 
-**[franckferman.github.io/p0wnyShellX](https://franckferman.github.io/p0wnyShellX/)** — browser-based tool to configure and copy `p0wnyShellX.py` commands. Preset tabs (quick, infra-dark, corporate, matrix, minimal) and a live custom builder with password/user/theme/transport/junk/output inputs.
+**[franckferman.github.io/p0wnyShellX](https://franckferman.github.io/p0wnyShellX/)** — browser-based tool to configure and copy `p0wnyShellX.py` commands. Preset tabs (quick, infra-dark, corporate, matrix, poly, none, minimal) and a live custom builder with all 13 themes, transport, junk, and output fields.
 
 ---
 

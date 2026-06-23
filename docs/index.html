@@ -306,8 +306,10 @@ footer a:hover { color: var(--muted); }
       <button class="tab"        onclick="setTab(1)"><span class="kbd">2</span> infra-dark</button>
       <button class="tab"        onclick="setTab(2)"><span class="kbd">3</span> corporate</button>
       <button class="tab"        onclick="setTab(3)"><span class="kbd">4</span> matrix</button>
-      <button class="tab"        onclick="setTab(4)"><span class="kbd">5</span> minimal</button>
-      <button class="tab"        onclick="setTab(5)"><span class="kbd">6</span> custom</button>
+      <button class="tab"        onclick="setTab(4)"><span class="kbd">5</span> poly</button>
+      <button class="tab"        onclick="setTab(5)"><span class="kbd">6</span> none</button>
+      <button class="tab"        onclick="setTab(6)"><span class="kbd">7</span> minimal</button>
+      <button class="tab"        onclick="setTab(7)"><span class="kbd">8</span> custom</button>
     </div>
 
     <div class="terminal">
@@ -335,10 +337,20 @@ footer a:hover { color: var(--muted); }
       <div class="form-row">
         <span class="form-label">theme</span>
         <select class="form-input" id="c-theme" onchange="updateCustom()">
-          <option value="">random</option>
+          <option value="">random (from named themes)</option>
           <option value="infra-dark">infra-dark</option>
           <option value="corporate-blue">corporate-blue</option>
           <option value="matrix">matrix</option>
+          <option value="zabbix">zabbix</option>
+          <option value="ctos">ctos</option>
+          <option value="fsociety">fsociety</option>
+          <option value="russia">russia</option>
+          <option value="korea">korea</option>
+          <option value="france">france</option>
+          <option value="usa">usa</option>
+          <option value="redux">redux</option>
+          <option value="poly">poly (fully random)</option>
+          <option value="none">none (no theme)</option>
         </select>
       </div>
       <div class="form-row">
@@ -391,7 +403,7 @@ const TABS = [
   {
     html: `${PY} ${fl('-p')} ${st('"MyPass!"')} ${fl('-o')} ${fi('shell.php')}`,
     raw:  `python3 p0wnyShellX.py -p "MyPass!" -o shell.php`,
-    desc: `Random theme, 20–80 junk functions. <span class="hl">Fastest</span> path to a unique shell.`,
+    desc: `Random named theme, 20–80 junk functions. <span class="hl">Fastest</span> path to a unique shell.`,
   },
   {
     html: `${PY} ${fl('-p')} ${st('"MyPass!"')} ${fl('-u')} ${st('sysadmin')} ${fl('-t')} ${st('infra-dark')} ${fl('-j')} ${st('40')} ${fl('-o')} ${fi('shell.php')}`,
@@ -407,6 +419,16 @@ const TABS = [
     html: `${PY} ${fl('-p')} ${st('"MyPass!"')} ${fl('-u')} ${st('operator')} ${fl('-t')} ${st('matrix')} ${fl('-j')} ${st('80')} ${fl('-o')} ${fi('shell.php')}`,
     raw:  `python3 p0wnyShellX.py -p "MyPass!" -u operator -t matrix -j 80 -o shell.php`,
     desc: `<span class="hl">SysCore Terminal</span> &mdash; maximum junk density, maximum contrast.`,
+  },
+  {
+    html: `${PY} ${fl('-p')} ${st('"MyPass!"')} ${fl('-t')} ${st('poly')} ${fl('-j')} ${st('50')} ${fl('-o')} ${fi('shell.php')}`,
+    raw:  `python3 p0wnyShellX.py -p "MyPass!" -t poly -j 50 -o shell.php`,
+    desc: `<span class="hl">Fully polymorphic CSS</span> &mdash; random palette, random app name, random accent on every build. No stable color signature to target.`,
+  },
+  {
+    html: `${PY} ${fl('-p')} ${st('"MyPass!"')} ${fl('-t')} ${st('none')} ${fl('-o')} ${fi('shell.php')}`,
+    raw:  `python3 p0wnyShellX.py -p "MyPass!" -t none -o shell.php`,
+    desc: `<span class="hl">No CSS theme</span> &mdash; bare terminal, no styled header, no color signature. Maximum opacity against CSS-based detection rules.`,
   },
   {
     html: `${PY} ${fl('-p')} ${st('"MyPass!"')} ${fl('--no-junk')} ${fl('-o')} ${fi('shell.php')}`,
@@ -469,21 +491,21 @@ function render() {
   document.getElementById('tab-desc').innerHTML = TABS[cur].desc;
 
   const form = document.getElementById('custom-form');
-  if (cur === 5) {
+  if (cur === 7) {
     form.classList.add('visible');
   } else {
     form.classList.remove('visible');
   }
 
   const termBr = document.querySelector('.terminal');
-  const hasForm = cur === 5;
+  const hasForm = cur === 7;
   termBr.style.borderRadius = hasForm ? '0' : '0 0 5px 5px';
 }
 
 function setTab(i) {
   cur = i;
   document.querySelectorAll('.tab').forEach((t, idx) => t.classList.toggle('active', idx === i));
-  if (i === 5) buildCustom();
+  if (i === 7) buildCustom();
   render();
 }
 
