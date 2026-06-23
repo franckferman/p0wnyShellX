@@ -260,6 +260,10 @@ def compute_bcrypt_hash(password: str, cost: int = 12, seed: int = None) -> str:
 # TRANSPORT LAYER
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Names drawn from real-world webapp POST param pools (search, API, form handlers).
+# Must not contain any plain-mode param name (cmd, cwd, filename, type, path, file)
+# — mimic mode replaces those names by drawing from this pool, so overlap would
+# defeat the substitution and fail the CI mimic check.
 MIMIC_PARAM_POOL = [
     'q','query','search','keyword','term','text','input','filter',
     'dir','ctx','context','scope','ref','target','source',

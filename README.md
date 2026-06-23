@@ -197,6 +197,33 @@ A YARA rule targeting exec methods needs to commit to a specific set: "file cont
 
 Between 20 and 80 decoy PHP functions are generated per run, drawn from 20 body templates × 250+ name combinations, with randomized return values, loop counts, and string literals. They are scattered around the functional core to increase noise ratio.
 
+### 6. AJAX transport modes
+
+Every AJAX request between the browser and the shell carries parameters (`cmd`, `cwd`, `filename`…). In `plain` mode these are sent as-is. The `--transport` flag replaces this with one of three per-build traffic profiles:
+
+**`plain` (default)** — no encoding, parameters sent as cleartext POST fields.
+```
+POST /?x4r9tz=k2m8jvn
+cmd=id&cwd=%2Fvar%2Fwww
+```
+Low anomaly score. Suitable for environments without deep packet inspection. Default for a reason: high-entropy bodies (see below) can be more suspicious than plain text on ML-based sensors.
+
+**`mimic`** — parameter names replaced by names drawn at random from a real-world webapp pool (`query`, `payload`, `ctx`, `token`…), values base64-encoded.
+```
+POST /?x4r9tz=k2m8jvn
+payload=aWQ%3D&ctx=L3Zhci93d3c%3D
+```
+Looks like a standard API call. Parameter names change every build — no two mimic shells share the same names.
+
+**`rc4`** — RC4 stream cipher + per-build shuffled base64 alphabet. Both the 16-byte key and the alphabet are generated at build time and baked into both PHP and JS.
+```
+POST /?x4r9tz=k2m8jvn
+nonce=Ht3kVz9q...
+```
+POST body is opaque to regex-based WAF inspection. Note: high-entropy bodies are a signal for ML-based sensors (Darktrace, Vectra) — use only when the network has WAF coverage but no behavioral analytics.
+
+> The entropy trade-off is why `plain` is the default. On most targets, blending into normal traffic is safer than encrypting everything.
+
 ---
 
 ## Requirements
@@ -304,18 +331,6 @@ Once deployed and authenticated, the shell supports:
 Omit `--theme` to let the generator pick one at random on each run.
 
 ---
-
-## Exec fallback chain
-
-The shell tries execution methods in a random order per run (another source of signature variance):
-
-- `exec()`
-- `shell_exec()`
-- `system()` + output buffering
-- `passthru()` + output buffering
-- `popen()` + `fread()`
-
-If the first method is disabled by `disable_functions`, it falls through to the next automatically.
 
 ---
 
