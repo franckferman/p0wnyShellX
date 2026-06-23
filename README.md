@@ -180,7 +180,7 @@ The weight hierarchy reflects practical reliability per method:
 | `system` | 3 | Writes directly to stdout — requires `ob_start`/`ob_get_contents`/`ob_end_clean` to capture. If any of those three buffering functions are also disabled, the method silently produces no output. |
 | `passthru` | 2 | Same stdout issue as `system`, but designed for binary output. Marginally less common in default PHP installs. Same `ob_*` dependency. |
 | `popen` | 2 | Returns a file handle — requires a `fread` loop and `pclose`. More moving parts; stream may return partial output if the handle closes early. |
-| `proc_open` | 2 | Most capable (full pipe control, stderr separation), but also the most complex. Requires `$pipes` array, `stream_get_contents`, `proc_close`. Any step failing silently means no output. |
+| `proc_open` | 2 | Most capable (full pipe control, stderr separation), but also the most complex. Requires `$pipes` array, `stream_get_contents`, `proc_close`. Any step failing silently means no output. Weight is low because of this complexity — but it was added precisely because sysadmins frequently forget it in `disable_functions`, making it available when all other methods are blocked. Last-resort value, not primary. |
 
 ```
 # Three example builds
