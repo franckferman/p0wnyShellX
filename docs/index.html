@@ -385,11 +385,17 @@ footer a:hover { color: var(--muted); }
     <a class="lnk" href="https://github.com/franckferman/p0wnyShellX#readme" target="_blank" rel="noopener">Docs</a>
   </div>
 
-  <div style="margin:1.2rem auto 0;max-width:560px;border:1px solid #1c1c1c;border-radius:5px;padding:.7rem 1rem;font-size:.72rem;color:#555;line-height:1.7;letter-spacing:.03em;">
-    <span style="color:#2ecc71;font-weight:700;">Built-in shell commands</span><br>
-    <code style="color:#888;">revshell &lt;IP&gt; &lt;PORT&gt;</code> &mdash; reverse shell via bash / python3 / perl / php<br>
-    <code style="color:#888;">clearlog &lt;file&gt; &lt;pattern&gt;</code> &mdash; strip matching lines from a log in-place<br>
-    <code style="color:#888;">portscan &lt;ip[-range]&gt; &lt;ports&gt;</code> &mdash; TCP scan from the target host
+  <div style="margin:1.2rem auto 0;max-width:560px;border:1px solid #1c1c1c;border-radius:5px;padding:.7rem 1rem;font-size:.72rem;color:#555;line-height:1.9;letter-spacing:.03em;">
+    <span style="color:#2ecc71;font-weight:700;">Optional shell commands</span> <span style="color:#333;">&mdash; compiled only when the matching flag is passed</span><br>
+    <code style="color:#888;">revshell &lt;IP&gt; &lt;PORT&gt; [--method bash|python3|perl|php]</code><br>
+    <code style="color:#888;">clearlog &lt;file&gt; &lt;pattern&gt;</code><br>
+    <code style="color:#888;">portscan &lt;target&gt; &lt;ports|minimal|web|top20|top100&gt; [--stealth|--fast] [--timeout N] [--pause N]</code><br>
+    <code style="color:#888;">pingsweep &lt;target&gt; [--ports minimal|web|full] [--stealth|--fast] [--timeout N] [--pause N]</code><br>
+    <span style="color:#333;">Targets: single IP, CIDR, range, comma list &mdash; e.g. <code style="color:#666;">192.168.0.0/24</code> or <code style="color:#666;">10.0.0.1-50,172.16.0.1</code></span><br>
+    <span style="color:#2ecc71;font-weight:700;">Other flags</span><br>
+    <code style="color:#888;">--no-auth</code> &mdash; no login form / no session (magic file upload, quick tests)<br>
+    <code style="color:#888;">--stdout</code> &mdash; PHP to stdout, status messages to stderr (pipe-friendly)<br>
+    <code style="color:#888;">-d &lt;dir&gt;</code> &mdash; output directory, combined with <code style="color:#888;">-o &lt;name.php&gt;</code>
   </div>
 
 </div>
