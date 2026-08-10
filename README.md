@@ -1,14 +1,9 @@
 <div id="top" align="center">
 
-[![License][license-shield]](LICENSE)
-[![Python][python-shield]](https://www.python.org/)
-[![PHP][php-shield]](https://www.php.net/)
-[![Release][release-shield]](https://github.com/franckferman/p0wnyShellX/releases)
-[![CI][ci-shield]](https://github.com/franckferman/p0wnyShellX/actions)
+# p0wnyShellX
 
+**Polymorphic single-file PHP webshell generator.**
 
-
-**Polymorphic PHP webshell generator for authorized red team operations.**  
 *A unique shell on every run. No two deployments share the same signature.*
 
 </div>
@@ -17,16 +12,16 @@
 
 ## What is p0wnyShellX
 
-p0wnyShellX is a **polymorphic generator** for post-exploitation PHP webshells, forked and heavily extended from [p0wny-shell](https://github.com/flozz/p0wny-shell).
+p0wnyShellX is a **polymorphic generator** for post-exploitation PHP webshells. The project started from the [p0wny-shell](https://github.com/flozz/p0wny-shell) concept — a single self-contained PHP file that gives you a full terminal in the browser, with nothing to install on the operator machine. That idea is excellent; its limitations showed quickly in real engagement conditions: every deployment is byte-for-byte identical, there is no authentication layer, and the routing endpoints are hardcoded — all of it trivially signatureable. The transport obfuscation and the compile-time optional modules were inspired by [Weevely](https://github.com/epinna/weevely3) (per-session obfuscated request encoding, features baked in only when requested), rethought for a browser-first workflow.
 
-The original p0wny-shell and most derivatives ship a **static file** — every deployment is byte-for-byte identical, making YARA/AV/SIEM detection trivial. p0wnyShellX solves this: instead of a static webshell, you run a Python generator that produces a **unique PHP file every time**, with randomized function names, routing tokens, junk code, bcrypt-hashed credentials, CSS themes, and a configurable AJAX transport layer.
+The result: instead of shipping a static webshell, you run a Python generator that produces a **unique PHP file on every run** — randomized function names, routing tokens, junk code, bcrypt-hashed credentials, CSS camouflage themes, and a configurable AJAX transport layer. What reaches the target is a file that has never existed before and will never exist again.
 
 ```mermaid
 flowchart LR
     A["python3 p0wnyShellX.py<br/>-p 'MyPass!' -o shell.php"]
 
     subgraph engine ["Polymorphic Engine"]
-        B1["Random function names<br/>PHP + JS — 250+ pool"]
+        B1["Random function names<br/>PHP + JS — 275-name pool"]
         B2["Random routing tokens<br/>?x4r9tz=k2m8jvn"]
         B3["Bcrypt hash — cost=12<br/>plaintext never stored"]
         B4["Junk functions<br/>20–80 decoys per run"]
@@ -55,40 +50,40 @@ flowchart LR
 | Password storage | — | bcrypt cost=12 (via `password_verify`) |
 | Timing-safe auth | — | `hash_equals` on username + `password_verify` |
 | Static signature | Yes — every deploy identical | **No** — every deploy unique |
-| Function names | Fixed (`featureShell`, etc.) | Random from 250+ business name pool |
+| Function names | Fixed (`featureShell`, etc.) | Random draw from a 275-name business pool |
 | JS variable names | Fixed | Random |
 | HTML element IDs | Fixed | Random tokens |
 | Routing endpoints | Fixed `?feature=shell` | Random tokens (e.g. `?x4r9tz=k2m8jvn`) |
 | Junk code | None | 20–80 dynamically generated decoy functions |
 | Exec fallback order | Fixed | Weighted shuffle per run + random method drop |
+| AJAX transport | Cleartext, fixed parameter names | `plain` / `mimic` / `rc4` — per-build keys and parameter names |
+| Optional modules | — | `revshell`, `clearlog`, `portscan`, `pingsweep` — compiled in only when requested |
 | CSS camouflage | Transparent webshell | 11 camouflage themes + `poly` (random palette per build) + `none` (no CSS) |
 | Password in file | — | bcrypt hash only — plaintext never stored |
-| Reproductible builds | Yes (static) | Via `--seed` flag |
+| Reproducible builds | Yes (static) | Via `--seed` flag |
 
 ---
 
 ## Compared to Weevely
 
-[Weevely](https://github.com/epinna/weevely3) is the reference CLI webshell for red teamers. The two tools solve different problems — they can complement each other.
+[Weevely](https://github.com/epinna/weevely3) is the reference CLI webshell framework. p0wnyShellX borrows two of its ideas — obfuscated transport and features compiled in on demand — and drops the rest of its model: no Python client on the operator machine, no per-target agent protocol, just a browser tab.
 
 | Feature | Weevely | p0wnyShellX |
 |---|---|---|
-| Authentication | MD5(password) as XOR key | bcrypt cost=12 + `password_verify` |
+| Authentication | MD5(password) used as the XOR transport key | bcrypt cost=12 + `password_verify`, decoupled from transport |
 | Polymorphism | Variable shuffling + random string chunks | Business names, routing tokens, junk functions, bcrypt salt, exec order |
-| Communication | XOR+gzip+base64 in POST body, obfuscated header/footer | 3 modes: `plain` (cleartext), `mimic` (base64 + random param names), `rc4` (RC4 + per-build shuffled base64 alphabet) |
+| Communication | XOR+gzip+base64 in POST body, obfuscated header/footer | 3 modes, both directions: `plain` (cleartext), `mimic` (base64 + random param names), `rc4` (RC4 + per-build shuffled base64 alphabet) |
 | Interface | Python CLI client | Browser terminal — no tooling on operator machine |
-| Camouflage | Bare PHP snippet | Fake monitoring dashboard (3 themes) |
-| Modules | 30+ (reverse shell, SQL, net scan, proxy…) | Shell, upload, download, tab-complete, reverse shell, log clearing, port scan |
+| Camouflage | Bare PHP snippet | 11 themed fake dashboards + `poly` (random palette per build) + `none` |
+| Modules | ~30 (SQL console, proxy, audit, bruteforce…) | Core: shell, upload, download, tab-complete. Opt-in at build time: `revshell`, `clearlog`, `portscan`, `pingsweep` |
 | Exec methods | 9 — `exec`, `shell_exec`, `system`, `passthru`, `popen`, `proc_open`, `pcntl_fork`, `python_eval`, `perl_system` — shuffled | 4–6 per build — `exec`, `shell_exec`, `system` always present; `passthru`, `popen`, `proc_open` randomly dropped (~30% each); weighted order (reliable methods tend first) |
-| `disable_functions` bypass | Yes — mod_cgi + `.htaccess` (Apache only, requires `AllowOverride` + write access) | No — not planned as a priority; the technique requires Apache + mod_cgi + AllowOverride + web-writable directory, which are rarely all met in prod |
+| `disable_functions` bypass | Yes — mod_cgi + `.htaccess` (Apache only, requires `AllowOverride` + write access) | No — not planned as a priority; the technique requires Apache + mod_cgi + AllowOverride + a web-writable directory, conditions rarely all met in production |
 | Reverse shell | Yes | Yes — `revshell <IP> <PORT>` (bash → python3 → perl → php, first available) |
 | Log clearing | Yes | Yes — `clearlog <file> <pattern>` strips matching lines in-place |
-| Port scan | Yes | Yes — `portscan <ip[-range]> <ports>` via fsockopen from the target host |
-| SQL console | Yes | No |
+| Port scan / host discovery | Yes (`:net_scan`) | Yes — `portscan` and `pingsweep`, via fsockopen from the target host |
+| SQL console | Yes (`:sql_console`) | Not yet — see TODO |
 
-**Use Weevely when**: you need CLI automation, module ecosystem (SQL, reverse shell, scan), or obfuscated HTTP transport matters more than visual camouflage.
-
-**Use p0wnyShellX when**: browser access is your only option, per-deploy unique signatures are the priority, or themed camouflage helps the shell survive visual inspection.
+**Where Weevely still leads, and the plan to close it.** The remaining gaps are a non-interactive CLI client for scripting and automation (p0wnyShellX is browser-only by design today), a SQL console module, proxy/pivoting, and XOR+gzip+base64 transport. They are tracked in [TODO.md](TODO.md) — the stated goal of the project is full parity, so that "Weevely *or* a browser shell" stops being a choice you have to make.
 
 ---
 
@@ -96,7 +91,7 @@ flowchart LR
 
 ### 1. Function name randomization
 
-Every PHP and JS function is assigned a name drawn at random from a pool of 250+ plausible business names (`archiveReplicationLog`, `fetchComplianceStatus`, `validateSchemaCompatibility`…). A new mapping is generated on each run.
+Every PHP and JS function is assigned a name drawn at random from a pool of 275 plausible business names (`archiveReplicationLog`, `fetchComplianceStatus`, `validateSchemaCompatibility`…). A new mapping is generated on each run.
 
 ```
 # Run 1                          # Run 2
@@ -233,7 +228,7 @@ A YARA rule targeting exec methods needs to commit to a specific set: "file cont
 
 ### 5. Dynamic junk code
 
-Between 20 and 80 decoy PHP functions are generated per run, drawn from 20 body templates × 250+ name combinations, with randomized return values, loop counts, and string literals. They are scattered around the functional core to increase noise ratio.
+Between 20 and 80 decoy PHP functions are generated per run, drawn from 20 body templates × 275 name combinations, with randomized return values, loop counts, and string literals. They are scattered around the functional core to increase noise ratio.
 
 ### 6. AJAX transport modes
 
@@ -492,36 +487,29 @@ Omit `--theme` to pick at random from the named themes below (`poly` and `none` 
 
 ---
 
----
-
 ## CI/CD
 
-Every push to a version tag (`v*.*.*`) triggers a GitHub Actions workflow that:
+On every push and PR, a GitHub Actions suite generates 10 shells across the option matrix (named themes, `poly`, `none`, junk levels, transport modes, optional modules) and asserts: `php -l` passes on all of them, no static signature survives, two consecutive runs never produce the same file while two runs with the same `--seed` produce byte-identical ones, mimic mode randomizes parameter names, rc4 mode injects `tEnc`/`tDec` with no plaintext parameter left, and the exec fallback chain stays intact.
 
-1. Installs Python 3.11 and PHP 8.3
-2. Generates an example shell with default credentials
-3. Runs `php -l` syntax validation
-4. Verifies absence of static signatures
-5. Publishes a GitHub Release with `p0wnyShellX.py` and the example shell as assets
-
-On every push/PR, the CI also runs a polymorphism validation suite:
-- Generates 9 shells (named themes, `--theme poly`, `--theme none`, junk levels, and transport modes)
-- Checks PHP syntax on all
-- Confirms no static signatures remain
-- Confirms two consecutive runs produce different output
-- Verifies mimic transport uses randomized param names
-- Verifies rc4 transport injects `tEnc`/`tDec` and no plain param names
-- Verifies exec fallback chain integrity on all non-transport shells
+On a version tag (`v*.*.*`), a second workflow additionally publishes a GitHub Release with `p0wnyShellX.py` and a freshly generated example shell as assets.
 
 ---
 
 ## Security notes
 
-- The bcrypt hash in the generated file is irreversible without brute-force
-- `hash_equals` on username prevents timing oracle attacks
-- `password_verify` is constant-time for the password comparison
-- Session uses `cookie_httponly`, `use_strict_mode`, `cookie_samesite: Lax`
-- Wrong password triggers a random 400–700ms delay (anti-bruteforce)
+**On the generated file**
+
+- The password exists nowhere in plaintext. The bcrypt hash (cost=12) is computed at build time by the local PHP CLI; the password is handed to the PHP process through an environment variable, never as a command-line argument — it does not leak through `ps`.
+- Username comparison goes through `hash_equals`, password through `password_verify`: both comparisons are constant-time, no timing oracle.
+- Sessions are started with `cookie_httponly`, `use_strict_mode` and `cookie_samesite=Lax`.
+- A failed login sleeps a random 400–700 ms before answering — enough to make online brute-force impractical without penalizing legitimate use.
+
+**Caveats worth knowing before you deploy**
+
+- The `rc4` transport is **obfuscation, not encryption**. The key and the shuffled alphabet are embedded in the file: anyone holding the shell can decode the traffic. It defeats regex-based WAF inspection, not an analyst.
+- `--seed` makes a build fully deterministic — **including the bcrypt salt**. Ideal for CI and testing; never reuse a seeded build on a real target.
+- `--no-auth` removes the login form, the session and the hash: anyone who reaches the URL gets a shell. Reserve it for throwaway lab use, and pair it with an unguessable filename.
+- If PHP is absent from the operator machine at build time, the generator falls back to a reversible hex encoding of the password and prints a loud warning — do not deploy a shell built that way.
 
 ---
 
@@ -533,7 +521,11 @@ On every push/PR, the CI also runs a polymorphism validation suite:
 
 ## Legal disclaimer
 
-This tool is intended for **authorized penetration testing, red team engagements, and security research only**. Use it only on systems you own or have explicit written permission to test. Unauthorized use against systems you do not own is illegal. The author assumes no liability for misuse.
+This software is provided for **authorized penetration testing, red team engagements, and security research only**. You may use it exclusively on systems you own, or on systems for which you hold explicit, prior, written authorization from the owner.
+
+Unauthorized access to — or interference with — computer systems is a criminal offense in most jurisdictions (among others: the Computer Fraud and Abuse Act in the United States, articles 323-1 et seq. of the French Penal Code, the Computer Misuse Act in the United Kingdom, and the equivalent provisions transposing EU Directive 2013/40/EU).
+
+This tool is provided *as is*, without warranty of any kind, express or implied. The author assumes no liability for any damage, data loss, or legal consequence arising from the use or misuse of this software. By using it, you accept sole responsibility for your actions and for complying with all applicable laws and regulations.
 
 ---
 
@@ -542,10 +534,3 @@ This tool is intended for **authorized penetration testing, red team engagements
 GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
 
 ---
-
-<!-- SHIELDS -->
-[license-shield]: https://img.shields.io/github/license/franckferman/p0wnyShellX.svg?style=for-the-badge
-[python-shield]: https://img.shields.io/badge/Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white
-[php-shield]: https://img.shields.io/badge/PHP-8.x-777BB4?style=for-the-badge&logo=php&logoColor=white
-[release-shield]: https://img.shields.io/github/v/release/franckferman/p0wnyShellX?style=for-the-badge
-[ci-shield]: https://img.shields.io/github/actions/workflow/status/franckferman/p0wnyShellX/ci.yml?style=for-the-badge&label=CI

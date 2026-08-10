@@ -1,8 +1,13 @@
 # TODO / Roadmap
 
-## Planned
+**Project goal: full Weevely parity** — one generator that covers both the browser-terminal and the CLI-framework use cases, so the two tools no longer have to be combined.
+
+## Planned (Weevely parity gaps)
 
 - [ ] Obfuscated HTTP protocol — XOR+gzip+base64 for request and response payloads (à la Weevely), making POST body opaque to WAF inspection
+- [ ] Non-interactive CLI client — scripted, pipeable command execution against a deployed shell (automation, à la Weevely client); the browser stays the primary interface, the CLI is for tooling chains
+- [ ] SQL console module — interactive SQL queries against databases reachable from the target (à la `:sql_console`)
+- [ ] Proxy/pivot module — route operator traffic through the target host (à la `:net_proxy`)
 
 ## Low priority / won't implement soon
 
