@@ -23,19 +23,19 @@ The original p0wny-shell and most derivatives ship a **static file** — every d
 
 ```mermaid
 flowchart LR
-    A["python3 p0wnyShellX.py\n-p &quot;MyPass!&quot; -o shell.php"]
+    A["python3 p0wnyShellX.py<br/>-p 'MyPass!' -o shell.php"]
 
     subgraph engine ["Polymorphic Engine"]
-        B1["Random function names\nPHP + JS — 250+ pool"]
-        B2["Random routing tokens\n?x4r9tz=k2m8jvn"]
-        B3["Bcrypt hash — cost=12\nplaintext never stored"]
-        B4["Junk functions\n20–80 decoys per run"]
-        B5["CSS theme\n11 named + poly + none"]
-        B6["Shuffled exec order\nnew chain per build"]
-        B7["AJAX transport\nplain / mimic / rc4"]
+        B1["Random function names<br/>PHP + JS — 250+ pool"]
+        B2["Random routing tokens<br/>?x4r9tz=k2m8jvn"]
+        B3["Bcrypt hash — cost=12<br/>plaintext never stored"]
+        B4["Junk functions<br/>20–80 decoys per run"]
+        B5["CSS theme<br/>11 named + poly + none"]
+        B6["Shuffled exec order<br/>new chain per build"]
+        B7["AJAX transport<br/>plain / mimic / rc4"]
     end
 
-    C["shell.php\nunique signature — never the same"]
+    C["shell.php<br/>unique signature — never the same"]
 
     A --> engine
     engine --> C
