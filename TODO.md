@@ -30,3 +30,7 @@
 - [x] Log clearing — `clearlog <file> <pattern>` strips matching lines in-place from any readable/writable file
 - [x] Internal port scan — `portscan <ip[-range]> <port[s]>` TCP scan via fsockopen from the target host
 - [x] UTF-8 output — `b64u()` helper using `decodeURIComponent(escape(atob(s)))` fixes mojibake on non-ASCII command output
+- [x] Optional LLM pool augmentation (v3.0.0) — `--llm provider[:model]` (ollama local, or anthropic/openai/deepseek/kimi via env keys): fresh function names, app names, mimic params and junk words per build; atoms-only validation + denylist; silent static-pool fallback
+- [x] Target-context camouflage (v3.0.0) — `--company` / `--context`: names generated in the target organization's vocabulary
+- [x] Per-build session cookie name (v3.0.0) — random plausible name instead of `PHPSESSID`
+- [x] Offline pytest suite (v3.0.0) — 40 tests: generation invariants, seed determinism, theme/transport matrix, `php -l`, full LLM layer with mocked HTTP

@@ -362,6 +362,18 @@ footer a:hover { color: var(--muted); }
         </select>
       </div>
       <div class="form-row">
+        <span class="form-label">llm</span>
+        <input class="form-input" id="c-llm" type="text" placeholder="off — ollama | ollama:qwen2.5 | anthropic | openai | deepseek | kimi" oninput="updateCustom()" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <span class="form-label">company</span>
+        <input class="form-input" id="c-company" type="text" placeholder="target org name (requires llm)" oninput="updateCustom()" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <span class="form-label">context</span>
+        <input class="form-input" id="c-context" type="text" placeholder='e.g. "logistics, France" (requires llm)' oninput="updateCustom()" autocomplete="off">
+      </div>
+      <div class="form-row">
         <span class="form-label">junk</span>
         <input class="form-input" id="c-junk" type="number" min="0" max="200" value="40" oninput="updateCustom()">
       </div>
@@ -375,7 +387,7 @@ footer a:hover { color: var(--muted); }
 
     <div class="actions">
       <button class="copy-btn" id="copy-btn" onclick="copyCmd()">Copy</button>
-      <span class="kbd-hint">switch &nbsp;<kbd onclick="setTab(0)">1</kbd><kbd onclick="setTab(1)">2</kbd><kbd onclick="setTab(2)">3</kbd><kbd onclick="setTab(3)">4</kbd><kbd onclick="setTab(4)">5</kbd><kbd onclick="setTab(5)">6</kbd></span>
+      <span class="kbd-hint">switch &nbsp;<kbd onclick="setTab(0)">1</kbd><kbd onclick="setTab(1)">2</kbd><kbd onclick="setTab(2)">3</kbd><kbd onclick="setTab(3)">4</kbd><kbd onclick="setTab(4)">5</kbd><kbd onclick="setTab(5)">6</kbd><kbd onclick="setTab(6)">7</kbd><kbd onclick="setTab(7)">8</kbd></span>
     </div>
   </div>
 
@@ -395,7 +407,9 @@ footer a:hover { color: var(--muted); }
     <span style="color:#2ecc71;font-weight:700;">Other flags</span><br>
     <code style="color:#888;">--no-auth</code> &mdash; no login form / no session (magic file upload, quick tests)<br>
     <code style="color:#888;">--stdout</code> &mdash; PHP to stdout, status messages to stderr (pipe-friendly)<br>
-    <code style="color:#888;">-d &lt;dir&gt;</code> &mdash; output directory, combined with <code style="color:#888;">-o &lt;name.php&gt;</code>
+    <code style="color:#888;">-d &lt;dir&gt;</code> &mdash; output directory, combined with <code style="color:#888;">-o &lt;name.php&gt;</code><br>
+    <code style="color:#888;">--llm &lt;provider[:model]&gt;</code> &mdash; optional LLM pool augmentation: ollama (local) | anthropic | openai | deepseek | kimi<br>
+    <code style="color:#888;">--company "&lt;name&gt;" --context "&lt;industry, country&gt;"</code> &mdash; target-context names (requires --llm; prefer ollama for opsec)
   </div>
 
 </div>
@@ -476,6 +490,21 @@ function buildCustom() {
     rawParts.push('--transport', tr);
     htmlParts.push(fl('--transport'), st(esc(tr)));
   }
+  const llm = document.getElementById('c-llm').value.trim();
+  if (llm) {
+    rawParts.push('--llm', llm);
+    htmlParts.push(fl('--llm'), st(esc(llm)));
+  }
+  const comp = document.getElementById('c-company').value.trim();
+  if (llm && comp) {
+    rawParts.push('--company', `"${comp}"`);
+    htmlParts.push(fl('--company'), st(`"${esc(comp)}"`));
+  }
+  const ctx = document.getElementById('c-context').value.trim();
+  if (llm && ctx) {
+    rawParts.push('--context', `"${ctx}"`);
+    htmlParts.push(fl('--context'), st(`"${esc(ctx)}"`));
+  }
   if (j !== '') {
     let jVal = Math.max(0, Math.min(200, parseInt(j, 10) || 0));
     document.getElementById('c-junk').value = jVal;
@@ -486,14 +515,14 @@ function buildCustom() {
   rawParts.push('-o', o);
   htmlParts.push(fl('-o'), fi(esc(o)));
 
-  TABS[5].raw  = rawParts.join(' ');
-  TABS[5].html = htmlParts.join(' ');
+  TABS[7].raw  = rawParts.join(' ');
+  TABS[7].html = htmlParts.join(' ');
 }
 
 function updateCustom() {
   buildCustom();
   const d = document.getElementById('cmd-display');
-  d.innerHTML = TABS[5].html;
+  d.innerHTML = TABS[7].html;
 }
 
 function render() {

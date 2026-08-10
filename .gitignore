@@ -136,3 +136,4 @@ $RECYCLE.BIN/
 __pycache__/
 *.pyc
 *.pyo
+.venv/

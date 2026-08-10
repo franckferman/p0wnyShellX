@@ -60,6 +60,7 @@ flowchart LR
 | Optional modules | — | `revshell`, `clearlog`, `portscan`, `pingsweep` — compiled in only when requested |
 | CSS camouflage | Transparent webshell | 11 camouflage themes + `poly` (random palette per build) + `none` (no CSS) |
 | Password in file | — | bcrypt hash only — plaintext never stored |
+| Pool augmentation | — | Optional LLM-generated atoms per build (`--llm`, local or cloud) + target-context naming (`--company`/`--context`) |
 | Reproducible builds | Yes (static) | Via `--seed` flag |
 
 ---
@@ -273,6 +274,35 @@ Build B : hsl(71,12%,9%)  bg, hsl(251,70%,58%) accent, "Grid Terminal build-"
 
 **`--theme none`** strips all themed CSS. Colors fall back to generic black/gray values used by millions of pages; the login header title is empty. No CSS-based detection rule can fire on values that are indistinguishable from the browser default stylesheet.
 
+### 8. Optional LLM pool augmentation
+
+Everything above draws from **static pools** that ship in `p0wnyShellX.py` — and the repository is public. A defender could extract the 275 names, 38 mimic parameters or 20 app names and write detection rules against the *pool itself*. The `--llm` flag closes that gap: at build time, an LLM generates fresh atoms that are merged into the pools for that run only.
+
+```bash
+# Local model (nothing leaves the machine)
+python3 p0wnyShellX.py -p "MyPass!" --llm ollama -o shell.php
+python3 p0wnyShellX.py -p "MyPass!" --llm ollama:qwen2.5 -o shell.php
+
+# Cloud providers (key from environment)
+python3 p0wnyShellX.py -p "MyPass!" --llm anthropic -o shell.php    # ANTHROPIC_API_KEY
+python3 p0wnyShellX.py -p "MyPass!" --llm openai -o shell.php       # OPENAI_API_KEY
+python3 p0wnyShellX.py -p "MyPass!" --llm deepseek -o shell.php     # DEEPSEEK_API_KEY
+python3 p0wnyShellX.py -p "MyPass!" --llm kimi -o shell.php         # MOONSHOT_API_KEY
+
+# Target-context camouflage — names in the vocabulary of the target
+python3 p0wnyShellX.py -p "MyPass!" --llm ollama \
+  --company "Acme Logistics" --context "freight forwarding, France" -o shell.php
+```
+
+Four injection points are augmented: PHP/JS function names, `poly` theme app names, `mimic`/`rc4` parameter names, and the word pools inside junk function bodies. With `--company`/`--context`, a logistics target yields names like `reconcileFreightManifest`, `validateContainerRouting`, `fetchPickingList` — code that reads like the target's own internal tooling, not generic enterprise noise.
+
+Two hard guarantees, by design:
+
+- **The LLM never emits syntax.** It produces atoms only — identifiers and string literals — each validated by regex, deduplicated against the static pools, and passed through a denylist of telltale substrings (`payload`, `shell`, `base64`, `exec`…). The functional core of the shell remains reviewed template code; one hallucinated brace can never break a build.
+- **It can degrade, never fail.** Any network error, missing key, refusal or unparseable answer falls back silently to the static pools — an offline build with `--llm` produces exactly today's shell.
+
+Caveats: `--seed` only makes the RNG deterministic — LLM output is not reproducible, so seeded + LLM builds differ across runs. And an **opsec note**: `--company` sends the target organization's name to the provider — with a cloud API that leaks engagement metadata, so prefer a local model (`ollama`) for sensitive targets.
+
 ---
 
 ## Requirements
@@ -333,6 +363,14 @@ python3 p0wnyShellX.py [OPTIONS]
 | `--seed` | `-s` | — | Fixed RNG seed for reproducible output |
 | `--transport` | — | `plain` | AJAX encoding: `plain` / `mimic` / `rc4` |
 
+**LLM augmentation** *(opt-in — static pools when omitted; see "How the polymorphism works" §8)*
+
+| Flag | Default | Description |
+|---|---|---|
+| `--llm SPEC` | off | `provider[:model]` — `ollama` (local, `OLLAMA_HOST`), `anthropic`, `openai`, `deepseek`, `kimi` (env API keys) |
+| `--company NAME` | — | Target organization — names/strings generated in its vocabulary (requires `--llm`) |
+| `--context TEXT` | — | Extra target context, e.g. `"logistics, France"` (requires `--llm`) |
+
 **Optional shell features** *(opt-in — not compiled unless flag is passed)*
 
 | Flag | Compiles | Description |
@@ -389,6 +427,12 @@ python3 p0wnyShellX.py -p "MyPass123!" --transport rc4 -o shell.php
 
 # Shell with all optional features compiled in
 python3 p0wnyShellX.py -p "MyPass123!" --revshell --clearlog --portscan --pingsweep -o shell.php
+
+# LLM-augmented pools — fresh identifiers beyond the static 275-name pool (local model)
+python3 p0wnyShellX.py -p "MyPass123!" --llm ollama -o shell.php
+
+# Target-context camouflage — names in the target's own vocabulary
+python3 p0wnyShellX.py -p "MyPass123!" --llm ollama --company "Acme Logistics" --context "freight, France" -o shell.php
 ```
 
 ---
@@ -510,12 +554,13 @@ On a version tag (`v*.*.*`), a second workflow additionally publishes a GitHub R
 - `--seed` makes a build fully deterministic — **including the bcrypt salt**. Ideal for CI and testing; never reuse a seeded build on a real target.
 - `--no-auth` removes the login form, the session and the hash: anyone who reaches the URL gets a shell. Reserve it for throwaway lab use, and pair it with an unguessable filename.
 - If PHP is absent from the operator machine at build time, the generator falls back to a reversible hex encoding of the password and prints a loud warning — do not deploy a shell built that way.
+- `--company` sends the target organization's name to the LLM provider. With a cloud API (OpenAI, Anthropic, Deepseek, Kimi) that leaks engagement metadata to a third party — use `--llm ollama` (local, nothing leaves the machine) for sensitive targets.
 
 ---
 
 ## Interactive command builder
 
-**[franckferman.github.io/p0wnyShellX](https://franckferman.github.io/p0wnyShellX/)** — browser-based tool to configure and copy `p0wnyShellX.py` commands. Preset tabs (quick, infra-dark, corporate, matrix, poly, none, minimal) and a live custom builder with all 13 themes, transport, junk, and output fields.
+**[franckferman.github.io/p0wnyShellX](https://franckferman.github.io/p0wnyShellX/)** — browser-based tool to configure and copy `p0wnyShellX.py` commands. Preset tabs (quick, infra-dark, corporate, matrix, poly, none, minimal) and a live custom builder with all 13 themes, transport, LLM augmentation, junk, and output fields.
 
 ---
 

