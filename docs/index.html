@@ -381,6 +381,26 @@ footer a:hover { color: var(--muted); }
         <span class="form-label">output</span>
         <input class="form-input" id="c-out" type="text" value="shell.php" oninput="updateCustom()" autocomplete="off">
       </div>
+      <div class="form-row">
+        <span class="form-label">features</span>
+        <span style="flex:1;display:flex;flex-wrap:wrap;gap:.15rem .9rem;font-size:.72rem;color:var(--muted);font-family:var(--mono);">
+          <label><input type="checkbox" id="c-f-revshell" onchange="updateCustom()"> revshell</label>
+          <label><input type="checkbox" id="c-f-clearlog" onchange="updateCustom()"> clearlog</label>
+          <label><input type="checkbox" id="c-f-portscan" onchange="updateCustom()"> portscan</label>
+          <label><input type="checkbox" id="c-f-pingsweep" onchange="updateCustom()"> pingsweep</label>
+          <label><input type="checkbox" id="c-f-sql" onchange="updateCustom()"> sql</label>
+          <label><input type="checkbox" id="c-f-fetch" onchange="updateCustom()"> fetch</label>
+        </span>
+      </div>
+      <div class="form-row">
+        <span class="form-label">options</span>
+        <span style="flex:1;display:flex;flex-wrap:wrap;gap:.15rem .9rem;align-items:center;font-size:.72rem;color:var(--muted);font-family:var(--mono);">
+          <label><input type="checkbox" id="c-noauth" onchange="updateCustom()"> --no-auth</label>
+          <label><input type="checkbox" id="c-nojunk" onchange="updateCustom()"> --no-junk</label>
+          <label>seed <input class="form-input" id="c-seed" type="number" placeholder="—" style="width:5.5rem;flex:none;min-width:0;padding:.2rem .4rem;" oninput="updateCustom()"></label>
+          <label style="flex:1;min-width:200px;">client cfg <input class="form-input" id="c-clientcfg" type="text" placeholder="client.json" style="width:9rem;flex:none;min-width:0;padding:.2rem .4rem;" oninput="updateCustom()"></label>
+        </span>
+      </div>
     </div>
 
     <div id="tab-desc" class="tab-desc"></div>
@@ -507,11 +527,35 @@ function buildCustom() {
     rawParts.push('--context', `"${ctx}"`);
     htmlParts.push(fl('--context'), st(`"${esc(ctx)}"`));
   }
-  if (j !== '') {
+  ['revshell', 'clearlog', 'portscan', 'pingsweep', 'sql', 'fetch'].forEach(function (f) {
+    if (document.getElementById('c-f-' + f).checked) {
+      rawParts.push('--' + f);
+      htmlParts.push(fl('--' + f));
+    }
+  });
+  if (document.getElementById('c-noauth').checked) {
+    rawParts.push('--no-auth');
+    htmlParts.push(fl('--no-auth'));
+  }
+  const nojunk = document.getElementById('c-nojunk').checked;
+  if (nojunk) {
+    rawParts.push('--no-junk');
+    htmlParts.push(fl('--no-junk'));
+  } else if (j !== '') {
     let jVal = Math.max(0, Math.min(200, parseInt(j, 10) || 0));
     document.getElementById('c-junk').value = jVal;
     rawParts.push('-j', jVal);
     htmlParts.push(fl('-j'), st(String(jVal)));
+  }
+  const seed = document.getElementById('c-seed').value;
+  if (seed !== '') {
+    rawParts.push('--seed', seed);
+    htmlParts.push(fl('--seed'), st(esc(seed)));
+  }
+  const ccfg = document.getElementById('c-clientcfg').value.trim();
+  if (ccfg) {
+    rawParts.push('--client-config', ccfg);
+    htmlParts.push(fl('--client-config'), fi(esc(ccfg)));
   }
 
   rawParts.push('-o', o);
