@@ -40,7 +40,8 @@ def make_args(px, **kw):
     defaults = dict(password="TestPass123!", user="sysadmin", output="shell.php",
                     stdout=True, junk=None, theme=None, seed=None, no_junk=False,
                     transport="plain", no_auth=True, revshell=False, clearlog=False,
-                    portscan=False, pingsweep=False, outdir=None, llm=None,
-                    company=None, context=None, llm_provider=None)
+                    portscan=False, pingsweep=False, sql=False, fetch=False,
+                    outdir=None, llm=None, company=None, context=None,
+                    client_config=None, llm_provider=None)
     defaults.update(kw)
     return argparse.Namespace(**defaults)

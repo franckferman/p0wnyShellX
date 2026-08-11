@@ -5,9 +5,7 @@
 ## Planned (Weevely parity gaps)
 
 - [ ] Obfuscated HTTP protocol — XOR+gzip+base64 for request and response payloads (à la Weevely), making POST body opaque to WAF inspection
-- [ ] Non-interactive CLI client — scripted, pipeable command execution against a deployed shell (automation, à la Weevely client); the browser stays the primary interface, the CLI is for tooling chains
-- [ ] SQL console module — interactive SQL queries against databases reachable from the target (à la `:sql_console`)
-- [ ] Proxy/pivot module — route operator traffic through the target host (à la `:net_proxy`)
+- [ ] Full SOCKS proxy through the target (à la `:net_proxy`) — `fetch` already covers single-shot reads through the target; a persistent proxy channel is a larger piece of work
 
 ## Low priority / won't implement soon
 
@@ -34,3 +32,8 @@
 - [x] Target-context camouflage (v3.0.0) — `--company` / `--context`: names generated in the target organization's vocabulary
 - [x] Per-build session cookie name (v3.0.0) — random plausible name instead of `PHPSESSID`
 - [x] Offline pytest suite (v3.0.0) — 40 tests: generation invariants, seed determinism, theme/transport matrix, `php -l`, full LLM layer with mocked HTTP
+- [x] Runtime end-to-end suite (v3.1.0) — real builds served by `php -S` and driven over the actual protocol: auth, exec, `cd`, all transports, feature commands, `fetch` (both HTTP paths), `sql` against sqlite. Caught and fixed a real bug: `cd` was broken by a greedy `2>&1` regex in `resolve_task`
+- [x] Non-interactive CLI client (v3.1.0) — `tools/shellx_client.py`: scriptable command execution, replicates plain/mimic/rc4, protocol from `--client-config` sidecar or parsed from the shell file
+- [x] SQL console module (v3.1.0) — `--sql` compiles `sql <dsn> [user pass] <query>` (PDO: sqlite, mysql, pgsql…), aligned table output, 100-row cap
+- [x] Fetch-through-target module (v3.1.0) — `--fetch` compiles `fetch <url>` (pivot recon): curl → fopen → raw fsockopen fallback, 128 KB cap
+- [x] LLM parser hardening (v3.1.0) — strips `<think>` blocks (reasoning models), tolerates single-quoted and `//`-commented arrays, normalizes PascalCase to camelCase

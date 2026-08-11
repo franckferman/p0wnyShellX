@@ -115,6 +115,10 @@ def test_parse_llm_list_formats(px):
     assert px._parse_llm_list('```json\n["a", "b"]\n```') == ["a", "b"]
     assert px._parse_llm_list('Sure! Here you go:\n["a", "b"]') == ["a", "b"]
     assert px._parse_llm_list("1. alpha\n2. beta\n- gamma") == ["alpha", "beta", "gamma"]
+    # reasoning-model chain of thought must be stripped before parsing
+    assert px._parse_llm_list('<think>let me think about names… maybe "xx"</think>\n["a", "b"]') == ["a", "b"]
+    # small models often answer with single quotes (invalid JSON, valid Python literal)
+    assert px._parse_llm_list("[\n    'log',\n    'save',\n    'run'\n]") == ["log", "save", "run"]
 
 
 def _fake_llm(px, items):
@@ -138,6 +142,12 @@ def test_variants_denylist(px):
                           "fetchPickingList"])
     out = prov.variants("func_names", 10, __import__("random").Random(1))
     assert out == ["fetchPickingList"]
+
+
+def test_variants_normalizes_pascal_case(px):
+    prov = _fake_llm(px, ["LogisticsManager", "RouteManager"])
+    out = prov.variants("func_names", 10, __import__("random").Random(1))
+    assert out == ["logisticsManager", "routeManager"]
 
 
 def test_variants_fallback_on_network_error(px, monkeypatch):

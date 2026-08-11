@@ -21,6 +21,16 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
+          extensions: pdo_sqlite, curl
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run the offline + runtime test suite
+        # Unit tests, generation matrix, and full runtime E2E (php -S +
+        # protocol client): login, exec, cd, transports, optional features,
+        # fetch module (both HTTP paths), sql console (PDO sqlite).
+        run: python -m pytest tests/ -q
 
       - name: Generate shells (all themes + option combinations)
         run: |
@@ -34,10 +44,11 @@ jobs:
           python3 p0wnyShellX.py -p "CITestPass42!" -t none -o /tmp/s8.php
           python3 p0wnyShellX.py -p "CITestPass42!" -t poly -o /tmp/s9.php
           python3 p0wnyShellX.py -p "CITestPass42!" --revshell --clearlog --portscan --no-junk -o /tmp/s10.php
+          python3 p0wnyShellX.py -p "CITestPass42!" --sql --fetch --no-junk -o /tmp/s11.php
 
       - name: PHP syntax check
         run: |
-          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php /tmp/s8.php /tmp/s9.php /tmp/s10.php; do
+          for f in /tmp/s1.php /tmp/s2.php /tmp/s3.php /tmp/s4.php /tmp/s5.php /tmp/s6.php /tmp/s7.php /tmp/s8.php /tmp/s9.php /tmp/s10.php /tmp/s11.php; do
             php -l "$f" || exit 1
           done
 
@@ -147,7 +158,13 @@ jobs:
             echo "FAIL: expected 7 switch cases in s10.php (full features), got $count"
             exit 1
           fi
-          echo "Switch case counts verified (4 for default, 7 for full-feature build)."
+          # sql+fetch build must have exactly 6 cases
+          count=$(grep -c "case '" /tmp/s11.php || true)
+          if [ "$count" -ne 6 ]; then
+            echo "FAIL: expected 6 switch cases in s11.php (--sql --fetch), got $count"
+            exit 1
+          fi
+          echo "Switch case counts verified (4 default, 7 full-feature, 6 sql+fetch)."
 
       - name: Verify mimic transport excludes new plain param names
         run: |
