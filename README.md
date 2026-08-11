@@ -303,7 +303,7 @@ Two hard guarantees, by design:
 - **The LLM never emits syntax.** It produces atoms only — identifiers and string literals — each validated by regex, deduplicated against the static pools, and passed through a denylist of telltale substrings (`payload`, `shell`, `base64`, `exec`…). The functional core of the shell remains reviewed template code; one hallucinated brace can never break a build.
 - **It can degrade, never fail.** Any network error, missing key, refusal or unparseable answer falls back silently to the static pools — an offline build with `--llm` produces exactly today's shell.
 
-Caveats: `--seed` only makes the RNG deterministic — LLM output is not reproducible, so seeded + LLM builds differ across runs. And an **opsec note**: `--company` sends the target organization's name to the provider — with a cloud API that leaks engagement metadata, so prefer a local model (`ollama`) for sensitive targets.
+Caveats: `--seed` only makes the RNG deterministic — LLM output is not reproducible, so seeded + LLM builds differ across runs. An **opsec note**: `--company` sends the target organization's name to the provider — with a cloud API that leaks engagement metadata, so prefer a local model (`ollama`) for sensitive targets. And a **model note**: instruct models (`llama3.2`, `qwen2.5`, `mistral`…) give the best yield; small reasoning models work but produce partial results (their chain-of-thought and formatting quirks are handled — `<think>` blocks, commented or single-quoted arrays, PascalCase — but they sometimes simply return little).
 
 ---
 
@@ -599,7 +599,7 @@ On a version tag (`v*.*.*`), a second workflow additionally publishes a GitHub R
 
 ## Interactive command builder
 
-**[franckferman.github.io/p0wnyShellX](https://franckferman.github.io/p0wnyShellX/)** — browser-based tool to configure and copy `p0wnyShellX.py` commands. Preset tabs (quick, infra-dark, corporate, matrix, poly, none, minimal) and a live custom builder with all 13 themes, transport, LLM augmentation, junk, and output fields.
+**[franckferman.github.io/p0wnyShellX](https://franckferman.github.io/p0wnyShellX/)** — browser-based tool to configure and copy `p0wnyShellX.py` commands. Preset tabs (quick, infra-dark, corporate, matrix, poly, none, minimal) and a live custom builder covering every flag: all 13 themes, transport, LLM augmentation, optional features, seed, junk, client-config and output fields.
 
 ---
 
