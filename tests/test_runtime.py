@@ -170,7 +170,12 @@ def test_fetch_through_target(server, content_server):
 
 
 def test_fetch_fsockopen_fallback(server, content_server, tmp_path):
-    """Same fetch, but with allow_url_fopen=0 → the raw-socket path must work."""
+    """Same fetch, but with allow_url_fopen=0 → a fallback path must serve it.
+
+    Locally (no curl extension) this exercises the raw fsockopen path; in CI
+    (curl present) it exercises the curl path. Either way the content must
+    come through when fopen is unavailable.
+    """
     base, shells = server
     src = tmp_path / "nofopen.php"
     shutil.copy(shells["full"], src)
@@ -184,7 +189,8 @@ def test_fetch_fsockopen_fallback(server, content_server, tmp_path):
                          Protocol.from_sidecar(str(shells["full"]) + ".json"), timeout=15)
         assert c.login(USER, PASSWORD)
         out = c.exec(f"fetch {content_server}/secret.txt")
-        assert "INTERNAL-PORTAL-MARKER-42" in out and "fsockopen" in out
+        assert "INTERNAL-PORTAL-MARKER-42" in out
+        assert any(engine in out for engine in ("fsockopen", "curl"))
     finally:
         proc.kill()
 
